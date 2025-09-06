@@ -11,6 +11,7 @@
             "program": "${workspaceFolder}/tsvm/tsvm",
             "args": [],
             "stopAtEntry": true,
+            "preLaunchTask": "build",
             "cwd": "${workspaceFolder}",
             "environment": [],
             "MIMode": "gdb",

@@ -1,9 +1,12 @@
+
 #include "jass_parser.h"
 #include <StormPort.h>
 #include <assert.h>
 #include <setjmp.h>
 #include "vm_ext.h"
-
+#include <string.h>
+// strdup函数声明，解决隐式声明警告
+extern char *strdup(const char *s);
 #define ALLOC(type) vmext_alloc(sizeof(type))
 #define FREE(val) SAFE_DELETE(val, vmext_free)
 #define PARSER(NAME, ...) static LPTOKEN NAME(LPPARSER p, ##__VA_ARGS__)
@@ -151,12 +154,80 @@ PARSER(keyword_native) {
     return token;
 }
 PARSER(keyword_import){
-    if(eat_token(p, "{")){
-        LPTOKEN token = parse_token(p);
+    LPTOKEN token = alloc_token(TT_IMPORT, p);
+    LPCSTR module_name = NULL;
+    LPTOKEN imports = NULL;
+    
+    // 检查是否是命名空间导入: import * as namespace from 'module'
+    if (eat_token(p, "*")) {
+        if (eat_token(p, "as")) {
+            token->type = TT_IMPORT_NAMESPACE;
+            token->primary = read_identifier(p);  // namespace
+            if (!eat_token(p, "from")) {
+                PARSER_THROW("FROM expected after import * as namespace");
+            }
+            p->eat_quotes = 1;
+            module_name = parse_token(p);  // module name
+            p->eat_quotes = 0;
+            token->secondary = strdup(module_name);
+            return token;
+        } else {
+            PARSER_THROW("AS expected after import *");
+        }
+    }
+    // 检查是否是默认导入: import defaultExport from 'module'
+    else if (is_identifier(peek_token(p))) {
+        token->type = TT_IMPORT_DEFAULT;
+        token->primary = read_identifier(p);  // default export
+        if (!eat_token(p, "from")) {
+            PARSER_THROW("FROM expected after import identifier");
+        }
+        p->eat_quotes = 1;
+        module_name = parse_token(p);  // module name
+        p->eat_quotes = 0;
+        token->secondary = strdup(module_name);
         return token;
     }
-    else{
-        LPTOKEN token = parse_token(p);
+    // 检查是否是命名导入: import { export1, export2 } from 'module'
+    else if (eat_token(p, "{")) {
+        token->type = TT_IMPORT_NAMED;
+        // 解析导入列表
+        while (!eat_token(p, "}")) {
+            LPTOKEN import_item = alloc_token(TT_IDENTIFIER, p);
+            import_item->primary = read_identifier(p);
+            PUSH_BACK(TOKEN, import_item, imports);
+            
+            // 检查是否有别名: import { original as alias } from 'module'
+            if (eat_token(p, "as")) {
+                import_item->secondary = read_identifier(p);
+            }
+            if (eat_token(p, ",")) {
+                continue;
+            }
+            else if(eat_token(p, "}")){
+                break;
+            }
+            else{
+                PARSER_THROW("Unexpected '%s' in import list",peek_token(p));
+            }
+        }
+        token->args = imports;
+        
+        if (!eat_token(p, "from")) {
+            PARSER_THROW("FROM expected after import list");
+        }
+        p->eat_quotes = 1;
+        module_name = parse_token(p);  // module name
+        p->eat_quotes = 0;
+        token->primary = strdup(module_name);
+        return token;
+    }
+    // 简单导入: import 'module'
+    else {
+        p->eat_quotes = 1;
+        module_name = parse_token(p);
+        p->eat_quotes = 0;
+        token->primary = strdup(module_name);
         return token;
     }
 }
@@ -445,8 +516,11 @@ LPTOKEN JASS_ParseTokens(LPPARSER p) {
             LPGRAMMARFUNC func = eat_keyword(p, global_keywords);
             if (func && (token = func(p))) {
                 PUSH_BACK(TOKEN, token, tokens);
+                while (eat_token(p, ";")) {
+                    // skip
+                }
             } else {
-                PARSER_THROW("unknwon keyword at %s:%d",p->file,p->line);
+                PARSER_THROW("unknwon keyword at %s",PARSER_DumpLocation(p));
             }
         }
         return tokens;

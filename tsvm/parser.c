@@ -2,15 +2,18 @@
 #include "shared.h"
 #include "jass/vm_ext.h"
 #include "parser.h"
+#include <assert.h>
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <stdio.h>
 #define MAX_SEGMENT_SIZE 1024
 
 BOOL eat_token(LPPARSER p, LPCSTR value) {
     LPCSTR tok = peek_token(p);
     if (!strcmp(tok, value)) {
-        parse_token(p);
+        LPCSTR eat =  parse_token(p);
+        assert(eat==tok);
         return true;
     } else {
         return false;
@@ -58,14 +61,29 @@ LPCSTR parse_token(LPPARSER p) {
 //        printf("%s\n", word);
         update_location(start, p);
         return word;
-    } else if (strchr(p->delimiters, *p->buffer)) {
+    }
+    if (*p->buffer == '\'') {
+        LPCSTR closingQuote = strchr(p->buffer+1, '\'');
+        size_t stringLength = closingQuote-p->buffer+1;
+        if (p->eat_quotes) {
+            p->buffer++;
+            stringLength -= 2;
+        }
+        memcpy(word, p->buffer, stringLength);
+        word[stringLength] = '\0';
+        p->buffer = ++closingQuote;
+//        printf("%s\n", word);
+        update_location(start, p);
+        return word;
+    } 
+    else if (strchr(p->delimiters, *p->buffer)) {
         word[0] = *(p->buffer++);
         word[1] = '\0';
         update_location(start, p);
         return word;
     } else {
         size_t segmentLength = 0;
-        while (*p->buffer && *p->buffer != '\"' &&
+        while (*p->buffer && *p->buffer != '\"' && *p->buffer != '\'' &&
            (!isspace(*p->buffer) && strchr(p->delimiters, *p->buffer) == NULL) &&
                segmentLength < MAX_SEGMENT_SIZE - 1) {
             word[segmentLength++] = *(p->buffer++);
@@ -157,4 +175,21 @@ LPCSOURCEREF create_source_ref(LPPARSER p) {
     ref->line = p->line;
     ref->column = p->column;
     return ref;
+}
+
+LPCSTR PARSER_DumpLocation(LPPARSER p) {
+    if (p) {
+        static char buf[256];
+            snprintf(buf, sizeof(buf), "%s:%d:%d\n", p->file, p->line, p->column);
+        return buf;
+    }
+    return "";
+}
+LPCSTR JASS_DumpLocation(LPCSOURCEREF loc) {
+    static char buf[256];
+    if (loc) {
+        snprintf(buf, sizeof(buf), "%s:%d:%d\n", loc->file, loc->line, loc->column);
+        return buf;
+    }
+    return "";
 }

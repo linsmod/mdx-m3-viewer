@@ -24,6 +24,10 @@ typedef enum {
     TT_ELSE,
     TT_EXITWHEN,
     TT_RETURN,
+    TT_IMPORT,
+    TT_IMPORT_DEFAULT,
+    TT_IMPORT_NAMESPACE,
+    TT_IMPORT_NAMED,
 } TOKENTYPE;
 
 enum {
@@ -49,6 +53,7 @@ struct token {
 };
 
 LPTOKEN JASS_ParseTokens(LPPARSER p);
-
+LPCSTR PARSER_DumpLocation(LPPARSER p);
+LPCSTR JASS_DumpLocation(LPCSOURCEREF loc);
 
 #endif

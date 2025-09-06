@@ -149,7 +149,7 @@ JASSTYPE jass_types[] = {
 static LPJASSVAR jass_stackvalue(LPJASS j, int index);
 static JASSTYPEID jass_getvarbasetype(LPCJASSVAR var);
 static DWORD jass_dotoken(LPJASS j, LPCTOKEN token);
-static LPCSTR dump_location(LPCSOURCEREF loc);
+
 
 BOOL atob(LPCSTR str) {
     return !strcmp(str, "true");
@@ -288,7 +288,7 @@ static HANDLE RunAction(HANDLE handle) {
 #ifdef DEBUG_JASS
     fprintf(stdout,"<jass_thread> RunAction at %s:%d", __FILE__,__LINE__);
     INDENT(depth);
-    fprintf(stdout, "call: %s at %s\n", j->context.func->name, dump_location(j->current_token->location));
+    fprintf(stdout, "call: %s at %s\n", j->context.func->name, JASS_DumpLocation(j->current_token->location));
 #endif
     jass_call(j, 0);
     vmext_free(handle);
@@ -322,7 +322,7 @@ BOOL jass_evaluatetrigger(LPJASS j, LPTRIGGER trigger) {
 #ifdef DEBUG_JASS
     fprintf(stdout,"<vm> jass_evaluatetrigger at %s:%d\n", __FILE__,__LINE__);
     INDENT(depth);
-    fprintf(stdout, "call: %s at %s\n", cond->expr->name, dump_location(j->current_token->location));
+    fprintf(stdout, "call: %s at %s\n", cond->expr->name, JASS_DumpLocation(j->current_token->location));
 #endif
         if (jass_call(&tmp_state, 0) != 1 || !jass_popboolean(&tmp_state)) {
             return false;
@@ -809,7 +809,7 @@ DWORD VM_EvalCall(LPJASS j, LPCTOKEN token) {
         j->current_token = token;
 #ifdef DEBUG_JASS
             INDENT(depth);
-            fprintf(stdout, "call: %s at %s\n", token->primary, dump_location(token->location));
+            fprintf(stdout, "call: %s at %s\n", token->primary, JASS_DumpLocation(token->location));
 #endif
         set_targetfuncinfo(j, token->primary, token->location, false) ;
         jass_call(j, args);
@@ -829,7 +829,7 @@ DWORD VM_EvalCall(LPJASS j, LPCTOKEN token) {
         j->current_token = token;
 #ifdef DEBUG_JASS
             INDENT(depth);
-            fprintf(stdout, "call %s at %s\n", token->primary, dump_location(token->location));
+            fprintf(stdout, "call %s at %s\n", token->primary, JASS_DumpLocation(token->location));
 #endif
          set_targetfuncinfo(j, token->primary, token->location, true); ;
         jass_call(j, args);
@@ -854,14 +854,6 @@ static struct {
     { TT_FOURCC, VM_EvalFourCC },
     { TT_CALL, VM_EvalCall },
 };
-static LPCSTR dump_location(LPCSOURCEREF loc) {
-    static char buf[256];
-    if (loc) {
-        snprintf(buf, sizeof(buf), "%s:%d:%d\n", loc->file, loc->line, loc->column);
-        return buf;
-    }
-    return "";
-}
 
 DWORD jass_dotoken(LPJASS j, LPCTOKEN token) {
     if (!token)

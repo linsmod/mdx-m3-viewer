@@ -5,7 +5,7 @@
 #include "../api/api_macros.h"
 
 #define MAX_GROUP_SIZE 256
-#define DEBUG_JASS 1
+// #define DEBUG_JASS 1
 
 #define INDENT(depth) \
 FOR_LOOP(i, depth) fprintf(stdout," ");

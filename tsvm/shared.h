@@ -1,4 +1,5 @@
 #pragma once
+#include <ctype.h>
 #define KNOWN_AS(STRUCT, TYPE) \
 typedef struct STRUCT TYPE; \
 typedef struct STRUCT *LP##TYPE; \
