@@ -1,141 +1,46 @@
+// file vm_main.c
 #include "../shared.h"
+#include "api_macros.h"
 #include "vm_public.h"
 #include "vm_ext.h"
 #include "jass_parser.h"
 #include "../parser.h"
+#include <StormPort.h>
+#include <asm-generic/errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <assert.h>
-#define F_END { NULL }
-#define MAX_JASS_STACK 256
-#define JASS_DELIM ",;()[]+-/*="
-#define JASS_CONSTANT "constant"
-#define JASS_ARRAY "array"
-#define JASS_NULL "null"
-#define JASS_FALSE "false"
-#define JASS_TRUE "true"
-#define JASS_UNM "-"
-#define JASS_COMMA ","
-#define JASS_OPERATOR(NAME) { #NAME, NAME }
-#define INF_LOOP_PROTECTION 1024
-
-#define assert_type(var, type) assert(jass_checktype(var, type))
-#define JASSALLOC(type) vmext_alloc(sizeof(type))
-
-#define JASS_ADD_STACK(j, VAR, TYPE) \
-LPJASSVAR VAR = &j->stack[j->num_stack++]; \
-memset(VAR, 0, sizeof(*VAR)); \
-VAR->type = &jass_types[TYPE];
-
-#define JASS_SET_VALUE(VAR, VALUE, SIZE) \
-jass_setnull(VAR); \
-if (VALUE) { \
-  (VAR)->value = vmext_alloc(SIZE); \
-  memcpy((VAR)->value, VALUE, SIZE); \
-}
-
-#define JASS_CMPOP(NAME, OP) \
-DWORD NAME(LPJASS j) { \
-    return jass_pushboolean(j, jass_checknumber(j, 1) OP jass_checknumber(j, 2)); \
-}
-
-#define JASS_NUMOP(NAME, OP) \
-DWORD NAME(LPJASS j) { \
-    if (jass_gettype(j, 1) == jasstype_integer && jass_gettype(j, 2) == jasstype_integer) { \
-        return jass_pushinteger(j, jass_checkinteger(j, 1) OP jass_checkinteger(j, 2)); \
-    } else { \
-        return jass_pushnumber(j, jass_checknumber(j, 1) OP jass_checknumber(j, 2)); \
-    } \
-}
-
-KNOWN_AS(jass_array, JASSARRAY);
-KNOWN_AS(jass_dict, JASSDICT);
-KNOWN_AS(jass_arg, JASSARG);
-KNOWN_AS(jass_env, JASSENV);
-KNOWN_AS(jass_targetfuncinfo, JASSTARGETFUNCINFO);
-
+#include <strings.h>
+#include <vm_priv.h>
 VMPROGRAM VM_Compile(LPCTOKEN token);
 
 LPCSTR keywords[] = {
-    "elseif", "else", "endif", "set", "endfunction", "local", "then", NULL
+    "elseif", 
+    "else", 
+    "endif", 
+    "set", 
+    "endfunction", 
+    "local", 
+    "then", 
+    "for",
+    "let", 
+    "var", 
+    "export", 
+    "import", 
+    "typeof", 
+    "instanceOf", 
+    NULL
 };
 
-extern JASSMODULE jass_funcs[];
+extern JASSNATIVEFUNC jass_funcs[];
 
-typedef struct {
-    LPCSTR name;
-    void (*func)(LPJASS, LPJASSENV, LPPARSER);
-} parseStatement_t;
+static LPJASSMODULE g_module_cache = NULL; // 所有已加载模块链表
 
-struct jass_var {
-    LPCJASSTYPE type;
-    HANDLE value;
-    DWORD *refcount;
-    BOOL constant;
-    BOOL array;
-    struct {
-        LPJASSDICT locals;
-        DWORD returnstack;
-        BOOL done;
-    } env;
-    LPJASSARRAY _array;
-};
 
-struct jass_type {
-    LPCJASSTYPE inherit;
-    LPJASSTYPE next;
-    LPCSTR name;
-};
-
-struct jass_arg {
-    LPJASSARG next;
-    LPCJASSTYPE type;
-    LPCSTR name;
-};
-
-struct jass_function {
-    LPJASSARG args;
-    LPCJASSTYPE returns;
-    LPJASSFUNC next;
-    LPCSTR name;
-    LPCTOKEN code;
-    DWORD (*nativefunc)(LPJASS j);
-    BOOL constant;
-};
-
-struct jass_array {
-    LPJASSARRAY next;
-    DWORD index;
-    JASSVAR value;
-};
-
-struct jass_dict {
-    LPJASSDICT next;
-    LPCSTR key;
-    JASSVAR value;
-};
-
-struct jass_targetfuncinfo{
-    LPCSTR name;
-    LPCSOURCEREF location;
-    BOOL is_native;
-};
-
-struct jass_s {
-    LPJASSDICT globals;
-    LPJASSTYPE types;
-    LPJASSFUNC functions;
-    JASSVAR stack[MAX_JASS_STACK];
-    DWORD num_stack;
-    LPJASSTARGETFUNCINFO target_funcinfo; 
-    LPJASSVAR stack_pointer;
-    JASSCONTEXT context;
-    LPCTOKEN current_token;
-};
-
+// must sync with JASSTYPEID
 JASSTYPE jass_types[] = {
     { NULL, NULL, "integer" },
     { NULL, NULL, "real" },
@@ -144,13 +49,20 @@ JASSTYPE jass_types[] = {
     { NULL, NULL, "code" },
     { NULL, NULL, "handle" },
     { NULL, NULL, "cfunction" },
+    { NULL, NULL, "auto" },
+    { NULL, NULL, "type" },
+    { NULL, NULL, "Float32Array" },
+    { NULL, NULL, "Array" },
 };
 
 static LPJASSVAR jass_stackvalue(LPJASS j, int index);
 static JASSTYPEID jass_getvarbasetype(LPCJASSVAR var);
 static DWORD jass_dotoken(LPJASS j, LPCTOKEN token);
-
-
+static LPJASSMODULE gcache_find_module(LPCSTR name);
+void jass_pop(LPJASS j, DWORD count);
+void jass_copy(LPJASS j, LPJASSVAR var, LPCJASSVAR other);
+static LPCJASSTYPE find_type(LPCJASS j, LPCSTR name);
+unsigned long hash_str(const char *str);
 BOOL atob(LPCSTR str) {
     return !strcmp(str, "true");
 }
@@ -172,6 +84,17 @@ JASS_CMPOP(__ge, >=);
 JASS_CMPOP(__gt, >);
 JASS_CMPOP(__lt, <);
 
+JASS_ASSIGNOP(__add_assign, +);        // a += b
+JASS_ASSIGNOP(__sub_assign, -);        // a -= b
+JASS_ASSIGNOP(__mul_assign, *);        // a *= b
+JASS_ASSIGNOP(__div_assign, /);        // a /= b
+JASS_ASSIGNOP_INT(__mod_assign, %);    // a %= b
+JASS_ASSIGNOP_INT(__lshift_assign, <<); // a <<= b
+JASS_ASSIGNOP_INT(__rshift_assign, >>); // a >>= b
+JASS_ASSIGNOP_INT(__and_assign, &);     // a &= b
+JASS_ASSIGNOP_INT(__or_assign, |);      // a |= b
+JASS_ASSIGNOP_INT(__xor_assign, ^);     // a ^= b
+
 static BOOL var_eq(LPCJASSVAR a, LPCJASSVAR b) {
     if (jass_getvarbasetype(a) != jass_getvarbasetype(b)) {
         return false;
@@ -188,6 +111,9 @@ static BOOL var_eq(LPCJASSVAR a, LPCJASSVAR b) {
         case jasstype_code: return !memcmp(a->value, b->value, sizeof(HANDLE));
         case jasstype_cfunction: return !memcmp(a->value, b->value, sizeof(HANDLE));
         case jasstype_handle: return a->value==b->value;
+        case jasstype_auto:
+        // should not reach here.
+            assert(0);
     }
     return false;
 }
@@ -212,8 +138,27 @@ DWORD __or(LPJASS j) {
 DWORD __not(LPJASS j) {
     return jass_pushboolean(j, !jass_toboolean(j, 1));
 }
+//condition ? true_expression : false_expression
+DWORD __cond(LPJASS j) {
+    LPCJASSVAR cond_expr =  jass_stackvalue(j, 1);
+    LPCJASSVAR true_expr =  jass_stackvalue(j, 2);
+    LPCJASSVAR false_expr =  jass_stackvalue(j, 3);
+    return 0;
+}
 
-JASSMODULE jass_operators[] = {
+DWORD __typeofx(LPJASS j) {
+    LPCSTR typename =  jass_checkstring(j, 1);
+    if(!typename){
+        return jass_pushnull(j);
+    }
+    LPCJASSTYPE t = find_type(j, typename);
+    if(!t){
+        return jass_pushnull(j);
+    }
+    return jass_pushinteger(j,hash_str(typename));
+}
+
+JASSNATIVEFUNC jass_operators[] = {
     JASS_OPERATOR(__add),
     JASS_OPERATOR(__sub),
     JASS_OPERATOR(__mul),
@@ -228,7 +173,19 @@ JASSMODULE jass_operators[] = {
     JASS_OPERATOR(__or),
     JASS_OPERATOR(__unm),
     JASS_OPERATOR(__not),
-    { NULL },
+    JASS_OPERATOR(__cond),
+    JASS_OPERATOR(__typeofx),
+    { 0 },
+};
+
+
+DWORD import_module(LPJASS j) {
+    return jass_pushnullhandle(j, "gamestate");
+}
+JASSNATIVEFUNC jass_funcs[] = {
+    {.name="_import",.func=import_module},
+    {.name="_export",.func=import_module},
+    {0}
 };
 
 void removeDoubleBackslashes(LPSTR str) {
@@ -260,10 +217,10 @@ BOOL is_fourcc(LPCSTR tok) {
 }
 
 BOOL is_string(LPCSTR tok) {
-    return *tok == '\"';
+    return *tok == '\"' ||  *tok == '\'';
 }
 
-BOOL is_identifier(LPCSTR str) {
+BOOL is_simpleidentifier(LPCSTR str) {
     if (!isalpha(*str) && *str != '_')
         return false;
     for (LPCSTR s = str; *s; ++s) {
@@ -276,6 +233,43 @@ BOOL is_identifier(LPCSTR str) {
         }
     }
     return true;
+}
+
+BOOL is_qualified_identifier(LPCSTR str) {
+    // Check if the string contains at least one dot and valid identifiers separated by dots
+    if (!str || !strchr(str, '.')) return false;
+
+    LPCSTR start = str;
+    while (1) {
+        LPCSTR dot = strchr(start, '.');
+        if (!dot) {
+            // Last segment, must be a valid identifier
+            return is_simpleidentifier(start);
+        }
+        // Check the segment before the dot
+        char segment[128];
+        size_t len = dot - start;
+        if (len >= sizeof(segment)) return false;
+        strncpy(segment, start, len);
+        segment[len] = '\0';
+        if (!is_simpleidentifier(segment)) return false;
+        start = dot + 1;
+    }
+}
+
+BOOL is_identifier(LPCSTR str) {
+    return is_qualified_identifier(str) || is_simpleidentifier(str);
+}
+
+
+DWORD is_modifier(LPCSTR str) {
+    if(!strcmp(str, "public"))
+        return TF_PUBLIC;
+    if(!strcmp(str, "private"))
+        return TF_PRIVATE;
+    if(!strcmp(str, "protected"))
+        return TF_PROTECTED;
+    return 0;
 }
 
 BOOL is_comma(LPCSTR str) {
@@ -349,21 +343,26 @@ BOOL jass_calltrigger(LPJASS j, LPTRIGGER trigger) {
     }
 }
 
-static LPJASSCFUNCTION find_cfunction(LPCJASS j, LPCSTR name) {
-    for (LPCJASSMODULE m = jass_operators; m->name; m++) {
+static LPNATIVEFUNC find_cfunction(LPCJASS j, LPCSTR name) {
+    for (LPCJASSNATIVEFUNC m = jass_operators; m->name; m++) {
+        if (!strcmp(m->name, name)) {
+            return m->func;
+        }
+    }
+    for (LPCJASSNATIVEFUNC m = jass_funcs; m->name; m++) {
         if (!strcmp(m->name, name)) {
             return m->func;
         }
     }
     return NULL;
 }
-static LPCSTR cfunction_getname(LPJASSCFUNCTION func) {
-    for (LPCJASSMODULE m = jass_operators; m->name; m++) {
+static LPCSTR cfunction_getname(LPNATIVEFUNC func) {
+    for (LPCJASSNATIVEFUNC m = jass_operators; m->name; m++) {
         if (m->func == func) {
             return m->name;
         }
     }
-    for (LPCJASSMODULE m = jass_funcs; m->name; m++) {
+    for (LPCJASSNATIVEFUNC m = jass_funcs; m->name; m++) {
         if (m->func == func) {
             return m->name;
         }
@@ -388,8 +387,30 @@ static LPJASSVAR find_dict(LPJASSDICT dict, LPCSTR name) {
     }
     return NULL;
 }
-
+static LPJASSDICT copy_dict(LPJASSDICT dict, LPCSTR name) {
+    FOR_EACH_LIST(JASSDICT, item, dict) {
+        if (!strcmp(item->key, name)) {
+            LPJASSDICT copy = JASSALLOC(JASSDICT);
+            copy->key = name;
+            copy->next = NULL;
+            copy->value = item->value;
+            return copy;
+        }
+    }
+    return NULL;
+}
+static LPJASSMODULE gcache_find_module(LPCSTR name){
+    FOR_EACH_LIST(JASSMODULE, item, g_module_cache){
+        if(strcasecmp(item->name, name)==0){
+            return item;
+        }
+    }
+    return NULL;
+}
 static LPCJASSTYPE find_type(LPCJASS j, LPCSTR name) {
+    if(!strcmp(name, "number"))
+        name= "real";
+
     FOR_LOOP(i, sizeof(jass_types)/sizeof(*jass_types)) {
         if (!strcmp(jass_types[i].name, name)) {
             return &jass_types[i];
@@ -471,6 +492,7 @@ void jass_setnull(LPJASSVAR var) {
                 SAFE_DELETE(var->refcount, vmext_free);
             }
             break;
+        case jasstype_type:
         case jasstype_code:
         case jasstype_cfunction:
             // skip
@@ -519,46 +541,52 @@ void jass_copy(LPJASS j, LPJASSVAR var, LPCJASSVAR other) {
         return;
     } else if (!other->value) {
         return;
-    } else switch (jass_getvarbasetype(var)) {
-        case jasstype_integer:
-            assert(other->type == var->type);
-            JASS_SET_VALUE(var, other->value, sizeof(LONG));
-            break;
-        case jasstype_handle:
-            if (!is_handle_convertible(other->type, var->type)) {
-                fprintf(stderr, "Warning: Passing %s to %s type\n", other->type->name, var->type->name);
-            }
-            var->value = other->value;
-            var->refcount = other->refcount;
-            if (var->refcount) {
-                (*var->refcount)++;
-            }
-            break;
-        case jasstype_real:
-            switch (jass_getvarbasetype(other)) {
-                case jasstype_real:
-                    fval = *(FLOAT const *)other->value;
-                    break;
-                case jasstype_integer:
-                    fval = *(LONG const *)other->value;
-                    break;
-                default:
-                    assert(false);
-                    return;
-            }
-            JASS_SET_VALUE(var, &fval, sizeof(FLOAT));
-            break;
-        case jasstype_boolean:
-            assert(other->type == var->type);
-            JASS_SET_VALUE(var, other->value, sizeof(BOOL));
-            break;
-        case jasstype_string:
-            assert(other->type == var->type);
-            JASS_SET_VALUE(var, other->value, strlen(other->value)+1);
-            break;
-        default:
-            assert(false);
-            break;
+    } else {
+        JASSTYPEID type = jass_getvarbasetype(var);
+        if(type==jasstype_auto){
+            type = jass_getvarbasetype(other);
+        }
+        switch (type) {
+            case jasstype_integer:
+                assert(other->type == var->type);
+                JASS_SET_VALUE(var, other->value, sizeof(LONG));
+                break;
+            case jasstype_handle:
+                if (!is_handle_convertible(other->type, var->type)) {
+                    fprintf(stderr, "Warning: Passing %s to %s type\n", other->type->name, var->type->name);
+                }
+                var->value = other->value;
+                var->refcount = other->refcount;
+                if (var->refcount) {
+                    (*var->refcount)++;
+                }
+                break;
+            case jasstype_real:
+                switch (jass_getvarbasetype(other)) {
+                    case jasstype_real:
+                        fval = *(FLOAT const *)other->value;
+                        break;
+                    case jasstype_integer:
+                        fval = *(LONG const *)other->value;
+                        break;
+                    default:
+                        assert(false);
+                        return;
+                }
+                JASS_SET_VALUE(var, &fval, sizeof(FLOAT));
+                break;
+            case jasstype_boolean:
+                assert(other->type == var->type);
+                JASS_SET_VALUE(var, other->value, sizeof(BOOL));
+                break;
+            case jasstype_string:
+                assert(other->type == var->type);
+                JASS_SET_VALUE(var, other->value, strlen(other->value)+1);
+                break;
+            default:
+                assert(false);
+                break;
+        }
     }
 }
 
@@ -579,6 +607,15 @@ DWORD jass_pushhandle(LPJASS j, HANDLE value, LPCSTR type) {
     var->type = find_type(j, type);
     if (value) {
         var->value = value;
+        var->refcount = vmext_alloc(sizeof(DWORD));
+    }
+    return 1;
+}
+DWORD jass_pushtype(LPJASS j, LPCJASSTYPE value) {
+    JASS_ADD_STACK(j, var, jasstype_type);
+    jass_setnull(var);
+    if (value) {
+        var->value = (HANDLE)value;
         var->refcount = vmext_alloc(sizeof(DWORD));
     }
     return 1;
@@ -629,9 +666,9 @@ DWORD jass_pushstring(LPJASS j, LPCSTR value) {
     return 1;
 }
 
-DWORD jass_pushcfunction(LPJASS j, LPJASSCFUNCTION func) {
+DWORD jass_pushcfunction(LPJASS j, LPNATIVEFUNC func) {
     JASS_ADD_STACK(j, var, jasstype_cfunction);
-    JASS_SET_VALUE(var, &func, sizeof(LPJASSCFUNCTION));
+    JASS_SET_VALUE(var, &func, sizeof(LPNATIVEFUNC));
     return 1;
 }
  
@@ -748,6 +785,7 @@ DWORD VM_EvalBoolean(LPJASS j, LPCTOKEN token) {
 DWORD VM_EvalIdentifier(LPJASS j, LPCTOKEN token) {
     LPCJASSFUNC f = NULL;
     LPCJASSVAR v = NULL;
+   
     if (token->flags & TF_FUNCTION) {
         if ((f = find_function(j, token->primary))) {
             return jass_pushfunction(j, f);
@@ -758,8 +796,14 @@ DWORD VM_EvalIdentifier(LPJASS j, LPCTOKEN token) {
         return jass_pushvalue(j, v);
     } else if ((v = find_dict(jass_stackvalue(j, 0)->env.locals, token->primary))) {
         return jass_pushvalue(j, v);
-    } else {
-        return jass_pushnull(j);
+    }
+    else {
+        LPCJASSTYPE t = find_type(j, token->primary);
+        if(!t){
+            printf("Access undefined `%s at %s\n",token->primary,JASS_DumpLocation(token->location));
+            return jass_pushnull(j);
+        }
+        return jass_pushstring(j,token->primary);
     }
 }
 
@@ -780,16 +824,9 @@ DWORD VM_EvalFourCC(LPJASS j, LPCTOKEN token) {
     return jass_pushinteger(j, *(DWORD *)token->primary);
 }
 
-void set_targetfuncinfo(LPJASS j, LPCSTR funcname, LPCSOURCEREF funcref, BOOL is_native) {
-    JASSTARGETFUNCINFO *info = j->target_funcinfo;
-    info->name = funcname;
-    info->location = funcref;
-    info->is_native = is_native;
-}
-
 DWORD VM_EvalCall(LPJASS j, LPCTOKEN token) {
     LPCJASSFUNC f = NULL;
-    LPJASSCFUNCTION cf = NULL;
+    LPNATIVEFUNC cf = NULL;
     DWORD stacksize = j->num_stack;
     if (!strcmp(token->primary, "CommentString") && token->args) {
         fprintf(stdout, "%s\n", token->args->primary);
@@ -811,10 +848,10 @@ DWORD VM_EvalCall(LPJASS j, LPCTOKEN token) {
             INDENT(depth);
             fprintf(stdout, "call: %s at %s\n", token->primary, JASS_DumpLocation(token->location));
 #endif
-        set_targetfuncinfo(j, token->primary, token->location, false) ;
         jass_call(j, args);
         return j->num_stack - stacksize;
     } else if ((cf = find_cfunction(j, token->primary))) {
+        // jass_dumpstack(j);
         DWORD args = 0;
         jass_pushcfunction(j, cf);
         FOR_EACH_LIST(TOKEN, arg, token->args) {
@@ -828,11 +865,14 @@ DWORD VM_EvalCall(LPJASS j, LPCTOKEN token) {
         }
         j->current_token = token;
 #ifdef DEBUG_JASS
+        // jass_dumpstack(j);
             INDENT(depth);
             fprintf(stdout, "call %s at %s\n", token->primary, JASS_DumpLocation(token->location));
 #endif
-         set_targetfuncinfo(j, token->primary, token->location, true); ;
         jass_call(j, args);
+#if 1
+        // jass_dumpstack(j);
+#endif        
         return j->num_stack - stacksize;
     } else {
         fprintf(stderr, "Can't find function %s\n", token->primary);
@@ -844,7 +884,8 @@ DWORD VM_EvalCall(LPJASS j, LPCTOKEN token) {
 static struct {
     TOKENTYPE tokentype;
     DWORD (*func)(LPJASS j, LPCTOKEN token);
-} token_types[] = {
+} 
+token_types[] = {
     { TT_INTEGER, VM_EvalInteger },
     { TT_REAL, VM_EvalReal },
     { TT_STRING, VM_EvalString },
@@ -859,7 +900,7 @@ DWORD jass_dotoken(LPJASS j, LPCTOKEN token) {
     if (!token)
         return 0;
     FOR_LOOP(idx, sizeof(token_types)/sizeof(*token_types)) {
-        if (token_types[idx].tokentype == token->type) {
+        if (token_types[idx].tokentype == token->ttype) {
             return token_types[idx].func(j, token);
         }
     }
@@ -887,10 +928,19 @@ LPJASSDICT parse_dict(LPJASS j, LPCTOKEN token) {
     LPJASSDICT item = JASSALLOC(JASSDICT);
     item->value.constant = token->flags & TF_CONSTANT;
     item->value.array = token->flags & TF_ARRAY;
-    item->value.type = find_type(j, token->primary);
+    if(token->flags & TF_AUTOTYPE){
+        //nothing to do
+        //type will be set in jass_set_value
+        item->value.type = find_type(j, token->primary);
+        assert(item->value.type);
+    }
+    else{
+        item->value.type = find_type(j, token->primary);
+        assert(item->value.type);
+    }
     item->key = token->secondary;
-    if (token->init) {
-        jass_set_value(j, &item->value, token->init);
+    if (token->stmt) {
+        jass_set_value(j, &item->value, token->stmt);
     }
     return item;
 }
@@ -911,12 +961,12 @@ TOKENFUNC(TYPEDEF) {
 TOKENFUNC(IF) {
     while (token) {
         if (!token->condition) {
-            eval_TOKENS(j, token->body);
+            eval_TOKENS(j, token->stmt);
             return;
         }
         jass_dotoken(j, token->condition);
         if (jass_popboolean(j)) {
-            eval_TOKENS(j, token->body);
+            eval_TOKENS(j, token->stmt);
             return;
         }
         token = token->elseblock;
@@ -927,15 +977,15 @@ TOKENFUNC(SET) {
     LPJASSVAR v = NULL;
     if ((v = find_dict(j->globals, token->secondary))) {
         if (token->index) {
-            return jass_set_array_value(j, v, token->index, token->init);
+            return jass_set_array_value(j, v, token->index, token->stmt);
         } else {
-            return jass_set_value(j, v, token->init);
+            return jass_set_value(j, v, token->stmt);
         }
     } else if ((v = find_dict(jass_stackvalue(j, 0)->env.locals, token->secondary))) {
         if (token->index) {
-            return jass_set_array_value(j, v, token->index, token->init);
+            return jass_set_array_value(j, v, token->index, token->stmt);
         } else {
-            return jass_set_value(j, v, token->init);
+            return jass_set_value(j, v, token->stmt);
         }
     } else {
         fprintf(stderr, "Can't find variable %s\n", token->primary);
@@ -943,6 +993,7 @@ TOKENFUNC(SET) {
 }
 
 TOKENFUNC(VARDECL) {
+    assert(token->stmt);
     LPJASSDICT vardecl = parse_dict(j, token);
     ADD_TO_LIST(vardecl, jass_stackvalue(j, 0)->env.locals);
 }
@@ -955,16 +1006,18 @@ TOKENFUNC(GLOBAL) {
 TOKENFUNC(FUNCTION) {
     LPJASSFUNC func = JASSALLOC(JASSFUNC);
     func->name = token->primary;
-    func->code = token->body;
+    func->code = token->stmt;
     func->returns = find_type(j, token->secondary);
-    FOR_EACH_LIST(TOKEN, arg, token->args) {
-        LPJASSARG jarg = JASSALLOC(JASSARG);
-        jarg->name = arg->secondary;
-        jarg->type = find_type(j, arg->primary);
-        PUSH_BACK(JASSARG, jarg, func->args);
+    assert(func->returns);
+    FOR_EACH_LIST(TOKEN, arg, token->params) {
+        LPJASSPARAM param = JASSALLOC(JASSPARAM);
+        param->name = arg->secondary;
+        param->type = find_type(j, arg->primary);
+        assert(param->type);
+        PUSH_BACK(JASSPARAM, param, func->params);
     }
     if (token->flags & TF_NATIVE) {
-        LPJASSMODULE mod = find_in_array(jass_funcs, sizeof(JASSMODULE), func->name);
+        LPJASSNATIVEFUNC mod = find_in_array(jass_funcs, sizeof(JASSNATIVEFUNC), func->name);
         if (mod) {
             func->nativefunc = mod->func;
         }
@@ -978,14 +1031,14 @@ TOKENFUNC(CALL) {
 
 TOKENFUNC(LOOP) {
     for (DWORD i = 0;; i++) {
-        FOR_EACH_LIST(TOKEN const, tok, token->body) {
+        FOR_EACH_LIST(TOKEN const, tok, token->stmt) {
             if (jass_mustreturn(j)) {
                 return;
-            } else if (token->type == TT_RETURN) {
+            } else if (token->ttype == TT_RETURN) {
                 jass_setreturn(j);
-                jass_dotoken(j, token->body);
+                jass_dotoken(j, token->stmt);
                 return;
-            } else if (tok->type == TT_EXITWHEN) {
+            } else if (tok->ttype == TT_EXITWHEN) {
                 jass_dotoken(j, tok->condition);
                 if (jass_popboolean(j)) {
                     return;
@@ -998,11 +1051,134 @@ TOKENFUNC(LOOP) {
     }
 }
 
+
+TOKENFUNC(IMPORT_RUNONLY){
+    // 简单导入: import 'module'
+    LPJASSDICT module_dict = JASSALLOC(JASSDICT);
+    module_dict->key = strdup(token->primary);  // module name
+    module_dict->value.type = find_type(j, "handle");
+    jass_setnull(&module_dict->value);
+    
+    // 将模块字典添加到当前作用域
+    PUSH_BACK(JASSDICT, module_dict, jass_stackvalue(j, 0)->env.locals);
+}
+
+TOKENFUNC(IMPORT_DEFAULT_ENTRY){
+    assert(token->primary);
+    LPCSTR search = token->primary;  // 模块路径
+    LPJASSMODULE module = jass_loadmodule(j, search);
+    if (!module) {
+        fprintf(stderr, "Failed to load module: %s\n", search);
+        return;
+    }
+    PUSH_BACK(JASSMODULE, module, j->imports);
+    assert(token->secondary);
+    LPJASSDICT entry = copy_dict(module->exports,token->secondary);
+    assert(entry);
+    PUSH_BACK(JASSDICT, entry, jass_stackvalue(j, 0)->env.locals);
+}
+
+TOKENFUNC(IMPORT_ALL_ENTRIES) {
+     // import * as Namespace from 'module'
+    LPSTR search = token->primary;
+    LPSTR namespace = token->secondary;
+    LPJASSMODULE module = jass_loadmodule(j, search);
+    if (!module) return;
+    LPJASSNS ns= JASSALLOC(JASSNS);
+    LPJASSNSDICT nsvar = JASSALLOC(JASSNSDICT);
+    FOR_EACH_LIST(JASSDICT, var, module->exports){
+        // import key1,key2,...,keyn under ns
+        var->value.refcount+=1;
+        nsvar->value = var->value;
+        nsvar->key=strdup(var->key);
+        nsvar->ns = strdup(namespace);
+        PUSH_BACK(JASSNSDICT, nsvar, ns->vars);
+    }
+    ns->module = module;
+    PUSH_BACK(JASSNS, ns, j->import_ns);
+    PUSH_BACK(JASSDICT, module->exports, jass_stackvalue(j, 0)->env.locals);
+}
+
+TOKENFUNC(IMPORT_ENTRY_LIST) {
+    LPCSTR module_name = token->primary;  // 模块路径
+    
+    LPJASSMODULE module = jass_loadmodule(j, module_name);
+    if (!module) {
+        fprintf(stderr, "Failed to load module: %s\n", module_name);
+        return;
+    }
+    PUSH_BACK(JASSMODULE, module, j->imports);
+    assert(token->args);
+    FOR_EACH_LIST(TOKEN, item, token->args){
+        LPJASSDICT entry = copy_dict(module->exports,item->primary);
+        assert(entry);
+        PUSH_BACK(JASSDICT, entry, jass_stackvalue(j, 0)->env.locals);
+    }
+}
+
+TOKENFUNC(EXPORT_DEFAULT_ENTRY) {
+    LPJASSDICT default_export = JASSALLOC(JASSDICT);
+    default_export->key = "default";
+    default_export->value = *(jass_topvalue(j)); // 假设默认导出在栈顶
+    jass_pop(j, 1);
+
+    PUSH_BACK(JASSDICT, default_export, j->this_module->exports);
+}
+TOKENFUNC(EXPORT_ADD_ENTRY) {
+    assert(token->primary);
+    assert(token->stmt);
+
+    LPCSTR var_name = token->primary;
+    eval_SINGLETOKEN(j, token->stmt);
+    LPJASSVAR var = find_dict(jass_stackvalue(j, 0)->env.locals, var_name);
+    if (!var) {
+        fprintf(stderr, "Cannot export '%s': not found in globals\n", var_name);
+        return;
+    }
+
+    // 添加到模块的导出表
+    LPJASSDICT export_entry = JASSALLOC(JASSDICT);
+    export_entry->key = var_name;
+    export_entry->value = *var; 
+
+    PUSH_BACK(JASSDICT, export_entry, j->this_module->exports);
+}
+
+TOKENFUNC(EXPORT_ALL_ENTRIES){
+    // 命名空间导出
+    LPJASSDICT export_entry = JASSALLOC(JASSDICT);
+    export_entry->key = token->primary;  // namespace name
+    export_entry->value.type = find_type(j, "namespace");
+    jass_setnull(&export_entry->value);
+    
+    // 添加到全局导出表
+    PUSH_BACK(JASSDICT, export_entry, j->globals);
+}
+
+TOKENFUNC(EXPORT_ENTRY_LIST){
+    // 将所有导出的变量添加到导出表中
+    FOR_EACH_LIST(TOKEN, export_item, token->args) {
+        LPJASSDICT entry = JASSALLOC(JASSDICT);
+        entry->key = export_item->primary;  // export name
+        
+        // 如果有别名，使用别名作为key
+        if (export_item->secondary) {
+            entry->key = export_item->secondary;// export {primary as secondary}
+        }
+        entry->value = *find_dict(jass_stackvalue(j, 0)->env.locals, entry->key);
+        entry->value.refcount++;
+        
+        // 添加到全局导出表
+        PUSH_BACK(JASSDICT, entry, j->this_module->exports);
+    }
+}
+
 struct {
     LPCSTR name;
     TOKENTYPE type;
     void (*func)(LPJASS, LPCTOKEN);
-} token_eval[] = {
+} 
+token_eval[] = {
     TOKENEVAL(TYPEDEF),
     TOKENEVAL(FUNCTION),
     TOKENEVAL(VARDECL),
@@ -1011,16 +1187,24 @@ struct {
     TOKENEVAL(IF),
     TOKENEVAL(SET),
     TOKENEVAL(LOOP),
+    TOKENEVAL(EXPORT_DEFAULT_ENTRY),
+    TOKENEVAL(EXPORT_ALL_ENTRIES),
+    TOKENEVAL(EXPORT_ENTRY_LIST),
+    TOKENEVAL(EXPORT_ADD_ENTRY),
+    TOKENEVAL(IMPORT_DEFAULT_ENTRY),
+    TOKENEVAL(IMPORT_ALL_ENTRIES),
+    TOKENEVAL(IMPORT_ENTRY_LIST),
 };
+
 
 TOKENFUNC(SINGLETOKEN) {
     FOR_LOOP(index, sizeof(token_eval) / sizeof(*token_eval)) {
-        if (token->type == token_eval[index].type) {
+        if (token->ttype == token_eval[index].type) {
             token_eval[index].func(j, token);
             return;
         }
     }
-    fprintf(stderr, "Can't evaluate token of type %d\n", token->type);
+    fprintf(stderr, "Can't evaluate token of type %d\n", token->ttype);
     assert(false);
 }
 
@@ -1028,9 +1212,9 @@ TOKENFUNC(TOKENS) {
     FOR_EACH_LIST(TOKEN const, tok, token) {
         if (jass_mustreturn(j)) {
             return;
-        } else if (tok->type == TT_RETURN) {
+        } else if (tok->ttype == TT_RETURN) {
             jass_setreturn(j);
-            jass_dotoken(j, tok->body);
+            jass_dotoken(j, tok->stmt);
         } else {
             eval_SINGLETOKEN(j, tok);
         }
@@ -1051,15 +1235,77 @@ BOOL jass_dobuffer(LPJASS j, LPSTR buffer2,LPCSTR fileName) {
     eval_TOKENS(j, program);
     return true;
 }
-
-LPJASS jass_newstate(void) {
+LPJASS jass_newstate() {
     LPJASS j = JASSALLOC(JASS);
     j->stack_pointer = j->stack;
-    j->target_funcinfo = JASSALLOC(JASSTARGETFUNCINFO);
-    j->target_funcinfo->name = "<unset>";
-    j->target_funcinfo->location = NULL;
-    j->target_funcinfo->is_native = false;
+
+    LPJASSMODULE module = JASSALLOC(JASSMODULE);
+    module->evaluating = true;
+    module->loaded = true;
+    module->exports = JASSALLOC(JASSDICT);
+    module->name = NULL;
+    module->file = NULL;
+    module->state = j;
+    j->this_module = module;
     return j;
+}
+
+LPJASS jass_newstate2(LPJASSMODULE module) {
+    LPJASS j = JASSALLOC(JASS);
+    j->stack_pointer = j->stack;
+    j->this_module = module;
+    return j;
+}
+LPJASSMODULE jass_loadmodule(LPJASS loader,LPCSTR search) {
+    printf("jass_loadmodule %s by %s\n",search,loader->this_module->name);
+    LPSTR path = vmext_resolvepath(search,loader->this_module->file);
+    if(!path){
+        fprintf(stderr, "Can't resolve module: %s\n", search);
+        exit(1);
+    }
+    // 1. 检查缓存
+    LPJASSMODULE module = gcache_find_module(path);
+    if (module) {
+        if (module->evaluating) {
+            // 循环依赖：允许，但跳过执行
+            return module;
+        }
+        return module; // 已加载
+    }
+
+    // 2. 创建新模块
+    module = JASSALLOC(JASSMODULE);
+    module->name = strdup(search);
+    module->state = jass_newstate2(module);
+    module->exports = NULL;
+    module->loaded = false;
+    module->evaluating = true;
+    ADD_TO_LIST(module, g_module_cache);
+
+    // 3. 读取并执行模块代码
+    if (!jass_dofile(module->state, path)) {
+        fprintf(stderr, "Failed to execute module: %s\n", search);
+        return NULL;
+    }
+
+    module->loaded = true;
+    module->evaluating = false;
+
+    return module;
+}
+static void jass_deletemodule(LPJASSMODULE module){
+    // 清理导出表
+    SAFE_DELETE(module->exports, jass_deletedict);
+
+    // 清理模块状态
+    jass_close(module->state);
+
+    vmext_free(module);
+}
+void jass_unloadmodule(LPJASSMODULE module) {
+    if (!module) return;
+    // 从全局缓存中移除
+    REMOVE_FROM_LIST(JASSMODULE, module, g_module_cache,jass_deletemodule);
 }
 
 void jass_close(LPJASS j) {
@@ -1069,6 +1315,7 @@ void jass_close(LPJASS j) {
 #define EXTRACT_DIR "build"
 
 BOOL jass_dofile(LPJASS j, LPCSTR fileName) {
+    j->this_module->file = fileName;
     LPSTR buffer = vmext_readalltext(fileName);
     if (buffer) {
         BOOL success = jass_dobuffer(j, buffer,fileName);
@@ -1117,22 +1364,10 @@ DWORD jass_call(LPJASS j, DWORD args) {
     depth++;
 #endif
     if (jass_getvarbasetype(root) == jasstype_cfunction) {
-        LPJASSCFUNCTION func = *(LPJASSCFUNCTION *)root->value;
-// #ifdef DEBUG_JASS
-//         for (DWORD i = 0; jass_funcs[i].name; i++) {
-//             if (jass_funcs[i].func == func) {
-//                 printf("%s (native)", jass_funcs[i].name);
-//                 break;
-//             }
-//         }
-//         for (DWORD i = 0; jass_operators[i].name; i++) {
-//             if (jass_operators[i].func == func) {
-//                 printf("%s (native)", jass_operators[i].name);
-//                 break;
-//             }
-//         }
-//         printf("\n");
-// #endif
+        LPNATIVEFUNC func = *(LPNATIVEFUNC *)root->value;
+#ifdef DEBUG_JASS
+        jass_dumpstack(j);
+#endif
         ret = func(j);
     } else {
         LPCJASSFUNC func = root->value;
@@ -1141,7 +1376,7 @@ DWORD jass_call(LPJASS j, DWORD args) {
 // #ifdef DEBUG_JASS
 //         printf("%s\n", func->name);
 // #endif
-        FOR_EACH_LIST(JASSARG, arg, func->args) {
+        FOR_EACH_LIST(JASSPARAM, arg, func->params) {
             LPJASSDICT local = JASSALLOC(JASSDICT);
             local->key = arg->name;
             local->value.type = arg->type;
@@ -1173,7 +1408,7 @@ void jass_dumpstack(LPJASS j) {
     fprintf(stdout, "Stack dump (size=%d):\n", j->num_stack);
     FOR_LOOP(i, j->num_stack) {
         LPCJASSVAR var = &j->stack[i];
-        fprintf(stdout, "  [%d] type=%s value=", i, var->type->name);
+        fprintf(stdout, "  %s%p [%d] type=%s value= ",&j->stack[i]==j->stack_pointer?">":" ", &j->stack[i], i, var->type->name);
         switch (jass_getvarbasetype(var)) {
             case jasstype_integer:
                 fprintf(stdout, "%d", var->value ? *(LONG *)var->value : 0);
@@ -1193,12 +1428,15 @@ void jass_dumpstack(LPJASS j) {
             case jasstype_code:
                 fprintf(stdout, "code %s", var->value ? ((LPJASSFUNC)var->value)->name : "<null>");
                 break;
+            case jasstype_type:
+                 fprintf(stdout, "type %s", var->value ? ((LPJASSTYPE)var->value)->name : "<null>");
+                break;
             case jasstype_cfunction: {
-                LPCSTR name = cfunction_getname(var->value ? *(LPJASSCFUNCTION *)var->value : NULL);
+                LPCSTR name = cfunction_getname(var->value ? *(LPNATIVEFUNC *)var->value : NULL);
                 if (name) {
                     fprintf(stdout, "cfunction %s", name);
                 } else  {
-                    fprintf(stdout, "cfunction %p", var->value ? *(LPJASSCFUNCTION *)var->value : NULL);
+                    fprintf(stdout, "cfunction %p", var->value ? *(LPNATIVEFUNC *)var->value : NULL);
                 }
                 break;
             }
@@ -1239,4 +1477,13 @@ void jass_callbyname(LPJASS j, LPCSTR name, BOOL async) {
 #endif        
         jass_call(j, 0);
     }
+}
+unsigned long hash_str(const char *str) {
+    unsigned long hash = 5381;  // 初始值
+    int c;
+
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c; // hash * 33 + c
+
+    return hash;
 }

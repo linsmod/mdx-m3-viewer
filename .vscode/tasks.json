@@ -4,12 +4,22 @@
         {
             "label": "build",
             "type": "shell",
-            "command": "cd tsvm && make clean && make",
+            "command": "cd tsvm && rm ./build -rf && cmake -DCMAKE_BUILD_TYPE=Debug -B build  && cmake --build build",
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
             "problemMatcher": []
-        }
+        },
+        // {
+        //     "label": "build",
+        //     "type": "shell",
+        //     "command": "cd tsvm && rm ./build -rf && make",
+        //     "group": {
+        //         "kind": "build",
+        //         "isDefault": true
+        //     },
+        //     "problemMatcher": []
+        // }
     ]
 }

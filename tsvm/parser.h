@@ -22,6 +22,7 @@ struct parser_s {
 LPCSTR parse_token(LPPARSER p);
 LPCSTR parse_segment(LPPARSER p);
 LPCSTR peek_token(LPPARSER p);
+BOOL peek_token_eq(LPPARSER p,LPCSTR s);
 BOOL eat_token(LPPARSER p, LPCSTR value);
 void parser_error(LPPARSER parser) ;
 void *find_in_array(void *array, long, LPCSTR);

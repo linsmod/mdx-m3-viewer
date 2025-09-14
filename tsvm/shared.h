@@ -15,6 +15,8 @@ typedef void         * HANDLE;
 typedef char TEXT128[128];
 typedef char TEXT256[256];
 
+// strdup函数声明，解决隐式声明警告
+extern char *strdup(const char *s);
 #define MAKE(TYPE,...)(TYPE){__VA_ARGS__}
 
 #define SAFE_DELETE(x, func) if (x) { func(x); (x) = NULL; }
@@ -22,6 +24,14 @@ typedef char TEXT256[256];
 #define FOR_LOOP(property, max) \
 for (DWORD property = 0, end = max; property < end; ++property)
 
+#define HASH_STR(str, hash)            \
+    do {                               \
+        const char *s = (str);         \
+        (hash) = 5381;                 \
+        int c;                         \
+        while ((c = *s++))             \
+            (hash) = ((hash) << 5) + (hash) + c; \
+    } while(0)
 
 #define FOR_EACH_LIST(type, property, list) \
 for (type *property = list, *next = list ? (list)->next : NULL; \
@@ -51,11 +61,13 @@ for (TYPE *it = LIST; it;) { \
     it = next; \
 }
 
-#define PUSH_BACK(TYPE, VAR, LIST) \
-if (LIST) { \
-    TYPE *last##TYPE = LIST; \
-    while (last##TYPE->next) last##TYPE = last##TYPE->next; \
-    last##TYPE->next = VAR; \
-} else { \
-    LIST = VAR; \
-}
+#define PUSH_BACK(TYPE, VAR, LIST) do{ \
+    if (LIST) { \
+        TYPE *last##TYPE = LIST; \
+        while (last##TYPE->next) last##TYPE = last##TYPE->next; \
+        last##TYPE->next = VAR; \
+    } else { \
+        LIST = VAR; \
+    } \
+}while(0)  
+

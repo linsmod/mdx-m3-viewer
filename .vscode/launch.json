@@ -8,11 +8,11 @@
             "name": "C/C++ Debug (gdb Launch)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/tsvm/tsvm",
+            "program": "${workspaceFolder}/tsvm/build/tsvm",
             "args": [],
             "stopAtEntry": true,
             "preLaunchTask": "build",
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/",
             "environment": [],
             "MIMode": "gdb",
             "setupCommands": [

@@ -99,7 +99,7 @@ TOKENFUNC(Call) {
 //    }
 
 //    LPCJASSFUNC f = NULL;
-//    LPJASSCFUNCTION cf = NULL;
+//    LPNATIVEFUNC cf = NULL;
 //    DWORD stacksize = j->num_stack;
 //    if (!strcmp(t->primary, "CommentString") && t->args) {
 //        fprintf(stdout, "%s\n", t->args->primary);
@@ -147,7 +147,7 @@ static struct {
 TOKENFUNC(RegularToken) {
     if (!t) return;
     FOR_LOOP(idx, sizeof(token_types)/sizeof(*token_types)) {
-        if (token_types[idx].tokentype == t->type) {
+        if (token_types[idx].tokentype == t->ttype) {
             token_types[idx].func(w, t);
             return;
         }
@@ -179,8 +179,8 @@ TOKENFUNC(GLOBAL) {
     VM_Write(&w->data, "_%s:", t->secondary);
     VM_Write(&w->data, "\t.quad 0");
     VM_Write(&w->data, "\t.quad _%s", t->primary);
-    if (t->init) {
-        VM_InitValue(w, t->init, t->secondary);
+    if (t->stmt) {
+        VM_InitValue(w, t->stmt, t->secondary);
     }
 }
 
@@ -210,12 +210,12 @@ struct {
 
 TOKENFUNC(SINGLETOKEN) {
     FOR_LOOP(index, sizeof(token_writers) / sizeof(*token_writers)) {
-        if (t->type == token_writers[index].type) {
+        if (t->ttype == token_writers[index].type) {
             token_writers[index].func(w, t);
             return;
         }
     }
-    fprintf(stderr, "Can't evaluate t of type %d\n", t->type);
+    fprintf(stderr, "Can't evaluate t of type %d\n", t->ttype);
     assert(false);
 }
 

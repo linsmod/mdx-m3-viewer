@@ -13,7 +13,7 @@ BOOL eat_token(LPPARSER p, LPCSTR value) {
     LPCSTR tok = peek_token(p);
     if (!strcmp(tok, value)) {
         LPCSTR eat =  parse_token(p);
-        assert(eat==tok);
+        assert(strcmp(eat,tok)==0);
         return true;
     } else {
         return false;
@@ -22,7 +22,35 @@ BOOL eat_token(LPPARSER p, LPCSTR value) {
 
 void skip_spaces(LPPARSER p){
     while (isspace(*(p)->buffer)) { 
-        (p)->buffer++; \
+        (p)->buffer++;
+    }
+}
+void skip_comments(LPPARSER p){
+    while(p->buffer[0]=='/' && p->buffer[1]=='*'){
+        p->buffer+=2;
+        while(p->buffer){
+            if(p->buffer[0]=='*' && p->buffer[1]=='/'){
+                p->buffer+=2;
+                skip_spaces(p);
+                break;
+            }
+            else{
+                p->buffer+=1;
+            }
+        }
+    }
+    while(p->buffer[0]=='/' && p->buffer[1]=='/'){
+        p->buffer+=2;
+        while(p->buffer){
+            if(p->buffer[0]=='\n'){
+                p->buffer+=1;
+                skip_spaces(p);
+                break;
+            }
+            else{
+                p->buffer+=1;
+            }
+        }
     }
 }
 void safeskip_spaces(LPPARSER p) {
@@ -48,9 +76,11 @@ LPCSTR parse_token(LPPARSER p) {
     static char word[MAX_SEGMENT_SIZE];
     LPCSTR start = p->buffer;
     skip_spaces(p);
+    skip_comments(p);
     if (*p->buffer == '\"') {
         LPCSTR closingQuote = strchr(p->buffer+1, '"');
         size_t stringLength = closingQuote-p->buffer+1;
+        assert(stringLength<=MAX_SEGMENT_SIZE);
         if (p->eat_quotes) {
             p->buffer++;
             stringLength -= 2;
@@ -97,7 +127,13 @@ LPCSTR parse_token(LPPARSER p) {
 LPCSTR peek_token(LPPARSER p) {
     PARSER tmp = *p;
     LPCSTR token = parse_token(&tmp);
-    return token;
+    return strdup( token);
+}
+BOOL peek_token_eq(LPPARSER p,LPCSTR s) {
+    PARSER tmp = *p;
+    LPCSTR token = parse_token(&tmp);
+    assert(s);
+    return strcmp(token,s)==0;
 }
 
 LPCSTR parse_segment(LPPARSER p) {

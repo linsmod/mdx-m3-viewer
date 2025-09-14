@@ -1,0 +1,62 @@
+typedef enum {
+    JAST_TYPE_NUMBER,
+    JAST_TYPE_STRING,
+    JAST_TYPE_BOOLEAN,
+    JAST_TYPE_ARRAY,
+    JAST_TYPE_OBJECT,
+    JAST_TYPE_NULL,
+    JAST_TYPE_UNDEFINED,
+    JAST_TYPE_FUNCTION,
+    JAST_TYPE_INTEGER,
+    JAST_TYPE_FLOAT,
+    JAST_TYPE_DOUBLE,
+} JastType;
+typedef jast_object Object;
+typedef jast_string String;
+typedef jast_number Number;
+typedef jast_integer Interger;
+typedef jast_float Float;
+typedef jast_double Double;
+typedef jast_array Array;
+typedef jast_boolean Boolean;
+typedef jast_null Null;
+typedef jast_undefined Undefined;
+typedef jast_function Function;
+typedef struct {
+    JastType vtype;  // ← 类型标签
+    union {
+        double number;
+        JastString* string;
+        JastBoolean* boolean;
+        JastArray* array;
+        JastObject* object;
+        JastFunction* function;
+        void* userdata;
+    } as;
+} JastValue;
+typedef jast_value Value;
+
+struct jast_object{
+    
+}
+struct jast_string{
+
+}
+struct jast_integer{
+
+}
+struct jast_number{
+
+}
+struct jast_float{
+
+}
+struct jast_double{
+
+}
+struct jast_array{
+
+}
+struct jast_object{
+
+}

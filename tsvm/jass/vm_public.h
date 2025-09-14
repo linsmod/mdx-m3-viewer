@@ -5,7 +5,7 @@
 #include "../api/api_macros.h"
 
 #define MAX_GROUP_SIZE 256
-// #define DEBUG_JASS 1
+#define DEBUG_JASS 1
 
 #define INDENT(depth) \
 FOR_LOOP(i, depth) fprintf(stdout," ");
@@ -17,14 +17,18 @@ static __thread int depth = 0;
 KNOWN_AS(jass_function, JASSFUNC);
 KNOWN_AS(jass_type, JASSTYPE);
 KNOWN_AS(jass_var, JASSVAR);
-KNOWN_AS(jass_module, JASSMODULE);
+KNOWN_AS(jass_cfunction, JASSNATIVEFUNC);
 KNOWN_AS(jass_context, JASSCONTEXT);
 KNOWN_AS(vm_program, VMPROGRAM);
 KNOWN_AS(jass_s, JASS);
 KNOWN_AS(gtrigger_s, TRIGGER);
 KNOWN_AS(gtriggercondition_s, TRIGGERCONDITION);
 KNOWN_AS(gtriggeraction_s, TRIGGERACTION);
-
+KNOWN_AS(jass_array, JASSARRAY);
+KNOWN_AS(jass_dict, JASSDICT);
+KNOWN_AS(jass_module, JASSMODULE);
+KNOWN_AS(jass_namespace, JASSNS);
+KNOWN_AS(jass_nsvar, JASSNSDICT); 
 struct gtriggercondition_s {
     LPCJASSFUNC expr;
     LPTRIGGERCONDITION next;
@@ -55,8 +59,9 @@ typedef enum {
     UNIT_STATE_MAX_MANA,
 } UNITSTATE;
 
-typedef DWORD (*LPJASSCFUNCTION)(LPJASS);
+typedef DWORD (*LPNATIVEFUNC)(LPJASS);
 
+// must sync with jass_types
 typedef enum {
     jasstype_integer,
     jasstype_real,
@@ -65,11 +70,19 @@ typedef enum {
     jasstype_code,
     jasstype_handle,
     jasstype_cfunction,
+    jasstype_auto,
+    jasstype_type,
 } JASSTYPEID;
 
-struct jass_module {
+typedef enum{
+    MODIFIER_PUBLIC =0,
+    MODIFIER_PRIVATE=2,
+    MODIFIER_PROTECTED=4,
+}MODIFIER;
+
+struct jass_cfunction {
     LPCSTR name;
-    LPJASSCFUNCTION func;
+    LPNATIVEFUNC func;
 };
 
 struct vm_program {
@@ -81,7 +94,22 @@ struct jass_context {
     LPTRIGGER trigger;
     LPCJASSFUNC func;
 };
+struct jass_module {
+    LPCSTR name;           // 模块名（如 "utils.jass"）
+    LPCSTR file;
+    LPJASS state;          // 该模块的独立运行时状态（含 globals、functions）
+    BOOL loaded;           // 是否已加载
+    BOOL evaluating;       // 是否正在执行（防循环依赖死锁）
+    LPJASSDICT exports;    // 显式导出的符号表
+    struct jass_module *next;
+};
+struct jass_namespace{
+    struct jass_namespace* next;
+    LPJASSNSDICT vars;
+    LPJASSMODULE module;
+};
 LPJASS jass_newstate(void);
+LPJASSMODULE jass_loadmodule(LPJASS loader, LPCSTR module_name);
 void jass_setnull(LPJASSVAR var);
 void jass_close(LPJASS);
 BOOL jass_dofile(LPJASS, LPCSTR);
@@ -101,6 +129,7 @@ JASSTYPEID jass_gettype(LPJASS j, int index);
 DWORD jass_pushnull(LPJASS j);
 DWORD jass_pushinteger(LPJASS j, LONG value);
 DWORD jass_pushhandle(LPJASS j, HANDLE value, LPCSTR type);
+DWORD jass_pushtype(LPJASS j, LPCJASSTYPE value);
 DWORD jass_pushlighthandle(LPJASS j, HANDLE value, LPCSTR type);
 DWORD jass_pushnumber(LPJASS j, FLOAT value);
 DWORD jass_pushboolean(LPJASS j, BOOL value);
