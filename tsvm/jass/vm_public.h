@@ -16,6 +16,7 @@ static __thread int depth = 0;
 
 KNOWN_AS(jass_function, JASSFUNC);
 KNOWN_AS(jass_type, JASSTYPE);
+KNOWN_AS(jass_class, JASSCLASS);
 KNOWN_AS(jass_var, JASSVAR);
 KNOWN_AS(jass_cfunction, JASSNATIVEFUNC);
 KNOWN_AS(jass_context, JASSCONTEXT);
@@ -28,7 +29,7 @@ KNOWN_AS(jass_array, JASSARRAY);
 KNOWN_AS(jass_dict, JASSDICT);
 KNOWN_AS(jass_module, JASSMODULE);
 KNOWN_AS(jass_namespace, JASSNS);
-KNOWN_AS(jass_nsvar, JASSNSDICT); 
+KNOWN_AS(jass_nsvar, JASSDICTNS); 
 struct gtriggercondition_s {
     LPCJASSFUNC expr;
     LPTRIGGERCONDITION next;
@@ -83,6 +84,7 @@ typedef enum{
 struct jass_cfunction {
     LPCSTR name;
     LPNATIVEFUNC func;
+    LPCSTR stmt;
 };
 
 struct vm_program {
@@ -105,21 +107,22 @@ struct jass_module {
 };
 struct jass_namespace{
     struct jass_namespace* next;
-    LPJASSNSDICT vars;
+    LPJASSDICTNS vars;
     LPJASSMODULE module;
 };
-LPJASS jass_newstate(void);
+LPJASS jass_newstate(LPJASSMODULE module);
 LPJASSMODULE jass_loadmodule(LPJASS loader, LPCSTR module_name);
 void jass_setnull(LPJASSVAR var);
 void jass_close(LPJASS);
 BOOL jass_dofile(LPJASS, LPCSTR);
 BOOL jass_dofilenative(LPJASS, LPCSTR);
 void jass_callbyname(LPJASS, LPCSTR, BOOL);
-BOOL jass_dobuffer(LPJASS, LPSTR,LPCSTR);
+BOOL jass_dobuffer(LPJASS, LPSTR,LPCSTR,DWORD pflags);
 LONG jass_checkinteger(LPJASS j, int index);
 FLOAT jass_checknumber(LPJASS j, int index);
 BOOL jass_checkboolean(LPJASS j, int index);
 LPCSTR jass_checkstring(LPJASS j, int index);
+LPCSTR jass_checktypeof(LPJASS j, int index) ;
 LPCJASSFUNC jass_checkcode(LPJASS j, int index);
 HANDLE jass_checkhandle(LPJASS j, int index, LPCSTR type);
 BOOL jass_toboolean(LPJASS j, int index);
@@ -144,5 +147,6 @@ BOOL jass_popboolean(LPJASS j);
 BOOL jass_evaluatetrigger(LPJASS j, LPTRIGGER trigger);
 void jass_executetrigger(LPJASS j, LPTRIGGER trigger);
 void jass_dumpstack(LPJASS j);
-
+void jass_dumpenv(LPJASS j);
+void jass_dumpvar(LPJASS j,LPCJASSVAR var);
 #endif

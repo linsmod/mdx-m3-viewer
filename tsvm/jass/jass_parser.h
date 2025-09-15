@@ -3,6 +3,7 @@
 
 #include "../shared.h"
 #include "../parser.h"
+#include "string_utils.h"
 typedef enum {
     TT_UNKNOWN,
     TT_VALUE,
@@ -10,6 +11,7 @@ typedef enum {
     TT_TYPEDEF,
     TT_MEMBERDEF,
     TT_VARDECL,
+    TT_NEW,
     TT_GLOBAL,
     TT_IDENTIFIER,
     TT_ARRAYACCESS,
@@ -50,13 +52,19 @@ enum {
     TF_VAR           = 1 << 7,
     TF_LET           = 1 << 8,
     TF_TYPEOF        = 1 << 9,
-    TF_TYPESCRIPT    = 1 << 10,
+    TF_ANONYMOUS    = 1 << 10,
     TF_AUTOTYPE      = 1 << 11,
     TF_PUBLIC        = 1 << 12,
     TF_PRIVATE       = 1 << 13,
     TF_PROTECTED     = 1 << 14,
-    TF_PROTO_FIELD= 1 << 15,
-    TF_PROTO_FUNC = 1>>16
+    TF_PROTO_FIELD   = 1 << 15,
+    TF_PROTO_FUNC    = 1 << 16,
+    TF_NEW = 1 << 17,
+};
+
+enum{
+    PF_JASS =1,
+    PF_JS=2,
 };
 
 struct token {
@@ -73,6 +81,7 @@ struct token {
     LPTOKEN index;
     LPCSOURCEREF location;
     LPSTR pline; // optional parserline for debugging
+    LPSTR sline; 
 };
 
 LPTOKEN JASS_ParseTokens(LPPARSER p);

@@ -1,8 +1,8 @@
 # Simplified Makefile for tsvm
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -O0 -g
-LDFLAGS = -lm
+CFLAGS = -Wall -Wextra -std=c99 -O0 -g -fsanitize=address -fno-omit-frame-pointer
+LDFLAGS = -lm -fsanitize=address
 TARGET = tsvm
 BUILD_DIR = build
 

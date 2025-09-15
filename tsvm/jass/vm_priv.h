@@ -73,7 +73,7 @@ DWORD NAME(LPJASS j) { \
 
 KNOWN_AS(jass_pram, JASSPARAM);
 KNOWN_AS(jass_env, JASSENV);
-
+KNOWN_AS(jass_class, JASSCLASS);
 typedef struct {
     LPCSTR name;
     void (*func)(LPJASS, LPJASSENV, LPPARSER);
@@ -97,7 +97,11 @@ struct jass_type {
     LPCJASSTYPE inherit;
     LPJASSTYPE next;
     LPCSTR name;
-    LONG hash;
+};
+struct jass_class{
+    LPCJASSTYPE inherit;
+    LPCSTR name;
+    LPJASSCLASS next;
 };
 
 struct jass_pram {
@@ -114,6 +118,7 @@ struct jass_function {
     LPCTOKEN code;
     DWORD (*nativefunc)(LPJASS j);
     BOOL constant;
+    LPCJASSTYPE clstype;
 };
 
 struct jass_array {
@@ -122,11 +127,21 @@ struct jass_array {
     JASSVAR value;
 };
 
+typedef enum {
+    Unset,
+    LocalVars,
+    GlobalVars,
+    ExportVars,
+    ImportedVars,
+}varplace;
+
 struct jass_dict {
     LPJASSDICT next;
     LPCSTR key;
     JASSVAR value;
+    varplace declScope;
 };
+
 // for namespaced vars
 struct jass_nsvar{
     struct jass_nsvar* next;
@@ -139,6 +154,7 @@ struct jass_s {
     LPJASSDICT globals;
     LPJASSTYPE types;
     LPJASSFUNC functions;
+    LPJASSFUNC anonymous_functions;
     JASSVAR stack[MAX_JASS_STACK];
     DWORD num_stack;
     LPJASSVAR stack_pointer;

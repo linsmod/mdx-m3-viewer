@@ -2,9 +2,11 @@
 #include "jass_parser.h"
 #include <StormPort.h>
 #include <assert.h>
+#include <locale.h>
 #include <setjmp.h>
 #include "parser.h"
 #include "shared.h"
+#include "string_utils.h"
 #include "vm_ext.h"
 #include "vm_public.h"
 #include <stdbool.h>
@@ -18,6 +20,7 @@ LPTOKEN alloc_token_here(TOKENTYPE type, LPPARSER p,LPSTR pline);
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
 #define PARSERLINE() "@"__FILE__ ":" TOSTRING(__LINE__)
+#define SOURCELINE(file,line) "@"file ":" line
 #define PARSER_THROW(...) do {\
     fprintf(stderr, __VA_ARGS__); \
     fprintf(stderr, "\n"); \
@@ -69,7 +72,7 @@ BOOL is_compare_operator(LPCSTR str) {
 }
 
 BOOL is_logic_operator(LPCSTR str) {
-    return !strcmp(str, "and") || !strcmp(str, "or") || !strcmp(str, "!");
+    return !strcmp(str, "and") || !strcmp(str, "&&")|| !strcmp(str, "||") || !strcmp(str, "or") || !strcmp(str, "!");
 }
 
 BOOL is_typecheck_operator(LPCSTR str) {
@@ -127,6 +130,7 @@ LPSTR read_identifier(LPPARSER p) {
     if (is_identifier(peek_token(p))) {
         return strdup(parse_token(p));
     } else {
+        printf("Expected read_identifier, however got NULL at %s\n",PARSER_DumpLocation(p));
         return NULL;
     }
 }
@@ -158,7 +162,6 @@ static void parse_member(LPPARSER p, LPTOKEN tdef) {
     }
     else if(eat_token(p, "(")){
         token->flags |= TF_PROTO_FUNC;
-        token->flags |= TF_TYPESCRIPT;
         if(!eat_token(p, ")")){
             token->params = parse_ts_function_params(p);
         }
@@ -193,7 +196,7 @@ static BOOL parse_stmt(LPPARSER p, LPTOKEN function) {
             // skip
         }
     }
-    else if(function->flags & TF_TYPESCRIPT){
+    else if(p->pflags & PF_JS){
         token = parse_logical_expression(p);
         PUSH_BACK(TOKEN, token, function->stmt);
         while (eat_token(p, ";")) {
@@ -223,9 +226,24 @@ LPTOKEN alloc_token(TOKENTYPE type, LPPARSER p) {
     return token;
 }
 
+LPSTR source_line(LPCSTR file, int line) {
+    // 估算长度：@ + file + : + 最多 11 位数字 + \0
+    int len = 1 + (file ? (int)strlen(file) : 0) + 1 + 11 + 1;
+    LPSTR buffer = (LPSTR)malloc(len);
+    if (!buffer) return NULL;
+
+    if (file) {
+        sprintf(buffer, "@%s:%d", file, line);
+    } else {
+        sprintf(buffer, "@?:%d", line);
+    }
+
+    return buffer;
+}
 LPTOKEN alloc_token_here(TOKENTYPE type, LPPARSER p,LPSTR pline){
     LPTOKEN token = alloc_token(type,p);
     token->pline = pline;
+    token->sline = source_line(p->file, p->line);
     return token;
 }
 
@@ -239,7 +257,6 @@ PARSER(keyword_type) {
     }
     return token;
 }
-
 PARSER(parse_function_params) {
     if (eat_token(p, "nothing")) {
         return NULL;
@@ -248,6 +265,7 @@ PARSER(parse_function_params) {
     while (!params || eat_token(p, ",")) {
         LPTOKEN entry = ALLOC_TOKEN(TT_VARDECL, p);
         entry->pline = PARSERLINE();
+        entry->sline = source_line(p->file, p->line);
         entry->primary = read_identifier(p);
         entry->secondary = read_identifier(p);
         PUSH_BACK(TOKEN, entry, params);
@@ -259,7 +277,7 @@ PARSER(parse_ts_function_params) {
     while (!params || eat_token(p, ",")) {
         LPTOKEN entry = ALLOC_TOKEN(TT_VARDECL, p);
         entry->pline = PARSERLINE();
-        entry->flags |= TF_TYPESCRIPT;
+        entry->sline = source_line(p->file, p->line);
         entry->secondary = read_identifier(p);
         assert(entry->secondary);
         if(eat_token(p, ":")){
@@ -280,14 +298,12 @@ PARSER(parse_function_decl) {
     if(!token->primary){
         // anonymouse function
         token->primary = "<anonymous>";
-        token->flags |= TF_TYPESCRIPT;
     }
     if (eat_token(p, "takes")) { // jass
         token->params = parse_function_params(p);
     }
     else if(eat_token(p, "(")){ // typescript args
         if(!eat_token(p, ")")){
-            token->flags|= TF_TYPESCRIPT;
             token->params = parse_ts_function_params(p);
             if(!eat_token(p, ")")){
                 PARSER_THROW("Expected ')' in declaring function args");
@@ -300,6 +316,9 @@ PARSER(parse_function_decl) {
     else if (eat_token(p, ":")) { // typescript return type
         token->secondary = read_identifier(p);
         assert(token->secondary);
+    }
+    else{
+        token->secondary = "auto";
     }
     return token;
 }
@@ -493,6 +512,7 @@ PARSER(keyword_let) {
     // const name=value
     LPTOKEN token= ALLOC_TOKEN(TT_VARDECL, p);
     token->pline = PARSERLINE();
+    token->sline = source_line(p->file, p->line);
     token->flags |= TF_LET;
     
     token->secondary = read_identifier(p); //name
@@ -515,6 +535,46 @@ PARSER(keyword_let) {
         PARSER_THROW("expected native after constant");
     }
 }
+
+PARSER(keyword_new) {
+    LPTOKEN token = ALLOC_TOKEN(TT_NEW, p);
+    assert(0);
+    token->secondary = read_identifier(p); // typename
+    
+    if (eat_token(p, ":")) {
+        token->primary = read_identifier(p);
+    }
+
+    if (eat_token(p, "=")) {
+        token->stmt = keyword_function(p);
+        
+        if (!token->primary) {
+            if (token->stmt->ttype == TT_INTEGER) {
+                token->primary = "integer";
+            }
+            else if (token->stmt->ttype == TT_REAL) {
+                token->primary = "real";
+            }
+            else if (token->stmt->ttype == TT_STRING) {
+                token->primary = "string";
+            }
+            else if (token->stmt->ttype == TT_BOOLEAN) {
+                token->primary = "boolean";
+            }
+            else {
+                token->flags |= TF_AUTOTYPE;
+                token->primary = "auto"; 
+            }
+        }
+    } else {
+        // 没有初始化表达式，必须要有显式类型
+        if (!token->primary) {
+            PARSER_THROW("Variable declaration without initializer must have explicit type");
+        }
+    }
+    
+    return token;
+}
 PARSER(keyword_var) {
     // var name = "value"
     // var count = 42
@@ -523,7 +583,6 @@ PARSER(keyword_var) {
     // var name: string
     // var x=0,y=1;
     LPTOKEN token = ALLOC_TOKEN(TT_VARDECL, p);
-    token->pline = PARSERLINE();
     token->flags |= TF_VAR;
     
     token->secondary = read_identifier(p); // name
@@ -562,10 +621,12 @@ PARSER(keyword_var) {
     
     return token;
 }
+
 PARSER(keyword_const) {
     // const name=value
     LPTOKEN token= ALLOC_TOKEN(TT_VARDECL, p);
     token->pline = PARSERLINE();
+    token->sline = source_line(p->file, p->line);
     token->flags |= TF_CONSTANT;
     
     token->secondary = read_identifier(p); //name
@@ -672,7 +733,14 @@ PARSER(read_single_identifier) {
     else if (eat_token(p, "function")) {
         left = alloc_ident_token(p, TT_IDENTIFIER);
         left->flags |= TF_FUNCTION;
-    } else if (eat_token(p, "-")) {
+    }
+    else if (eat_token(p, "new")) {
+        left = ALLOC_TOKEN(TT_CALL, p);
+        left->flags |= TF_NEW;
+        left->primary = read_identifier(p);
+        left->args = read_single_identifier(p);
+    }
+    else if (eat_token(p, "-")) {
         left = ALLOC_TOKEN(TT_CALL, p);
         left->primary = strdup("__unm");
         left->args = read_single_identifier(p);
@@ -718,7 +786,13 @@ PARSER(read_single_identifier) {
             left->ttype = TT_ARRAYACCESS;
             left->index = parse_logical_expression(p);
         }
-    } else {
+    } 
+    else if(eat_token(p, "[")) {
+        left = ALLOC_TOKEN(TT_CALL, p);
+        left->primary = "Array.constructor";
+        left->args = read_single_identifier(p);
+    }
+    else {
         return NULL;
     }
     return left;
@@ -754,8 +828,8 @@ PARSER(parse_comparison_expression) {
         LPTOKEN oper = parse_operator_token(p);
         
         if(oper->ttype==TT_SET){
-            assert(left->ttype == TT_IDENTIFIER);
-            oper->primary = left->primary;
+            assert(left->ttype == TT_IDENTIFIER || left->ttype ==TT_ARRAYACCESS);
+            oper->secondary = left->primary;
             oper->stmt = ts_right_value(p);
             assert(oper->stmt);
             return oper;
@@ -769,6 +843,10 @@ PARSER(parse_comparison_expression) {
 }
 
 PARSER(parse_logical_expression) {
+
+            if(p->line==367){
+                printf("debuggerBreak\n");
+            }
     LPTOKEN left = parse_comparison_expression(p);
     assert(left);
     if (is_logic_operator(peek_token(p))) {
@@ -813,10 +891,16 @@ PARSER(keyword_globals) {
             token->flags |= TF_CONSTANT;
         }
         token->primary = read_identifier(p);
+        if(!token->primary){
+            PARSER_THROW("Expected an identifier or endglobals");
+        }
         if (eat_token(p, "array")) {
             token->flags |= TF_ARRAY;
         }
         token->secondary = read_identifier(p);
+       if(!token->secondary){
+            PARSER_THROW("Expected an identifier or endglobals");
+        }
         if (eat_token(p, "=")) {
             token->stmt = parse_logical_expression(p);
         }
@@ -865,6 +949,7 @@ PARSER(statement_for) {
 PARSER(statement_local) {
     LPTOKEN token = ALLOC_TOKEN(TT_VARDECL,p);
     token->pline = PARSERLINE();
+    token->sline = source_line(p->file, p->line);
     token->primary = read_identifier(p);
     if (eat_token(p, "array")) {
         token->flags |= TF_ARRAY;
@@ -880,32 +965,33 @@ PARSER(statement_if) {
     LPTOKEN token = ALLOC_TOKEN(TT_IF,p);
     LPTOKEN target = token;
     token->condition = parse_logical_expression(p);
-    if (eat_token(p, "{")) {
+    while (eat_token(p, "{")) {
         while (!eat_token(p, "}")){
             parse_stmt(p, target);
-            target->flags |= TF_TYPESCRIPT;
-            if (eat_token(p, "else")){
-                if(eat_token(p, "if")){
-                    LPTOKEN next = ALLOC_TOKEN(TT_ELSE,p);
-                    next->condition = parse_logical_expression(p);
-                    if (!eat_token(p, "{")) {
-                        FREE(token);
-                        PARSER_THROW("else if mssing block");
-                    }
-                    target->elseblock = next;
-                    target = next;
+        }
+        if (eat_token(p, "else")){
+            if(eat_token(p, "if")){
+                LPTOKEN next = ALLOC_TOKEN(TT_ELSE,p);
+                next->condition = parse_logical_expression(p);
+                if (!eat_token(p, "{")) {
+                    FREE(token);
+                    PARSER_THROW("else if mssing block");
                 }
-                else{
-                    LPTOKEN next = ALLOC_TOKEN(TT_ELSE,p);
-                    target->elseblock = next;
-                    target = next;
-                }
+                target->elseblock = next;
+                target = next;
+            }
+            else{
+                LPTOKEN next = ALLOC_TOKEN(TT_ELSE,p);
+                target->elseblock = next;
+                target = next;
             }
         }
     }
-    else if (!eat_token(p, "then")) {
+    if(p->pflags & PF_JS){
+        return token;
+    }
+    if (!eat_token(p, "then")) {
         // if(condition) body;
-        target->flags |= TF_TYPESCRIPT;
         parse_stmt(p, target);
         return token;
     }
@@ -939,7 +1025,6 @@ PARSER(statement_exitwhen) {
 PARSER(statement_while) {
     LPTOKEN token = ALLOC_TOKEN(TT_WHILE,p);
     token->condition = parse_logical_expression(p);
-    token->flags |= TF_TYPESCRIPT;
     if (eat_token(p, "{")) {
         while (!eat_token(p, "}")){
             parse_stmt(p, token);
@@ -947,7 +1032,6 @@ PARSER(statement_while) {
     }
     else{
         // while(condition) statement;
-        token->flags |= TF_TYPESCRIPT;
         parse_stmt(p, token);
         return token;
     }
@@ -987,6 +1071,7 @@ parseClass_t function_keywords[] = {
 
     // typescript like
     { "var", keyword_var },
+     { "new", keyword_new },
     { "let", keyword_let },
     { "for", statement_for },
     { "const", keyword_const },
@@ -997,7 +1082,7 @@ parseClass_t function_keywords[] = {
 
 PARSER(keyword_function) {
     LPTOKEN function = parse_function_decl(p);
-    if(function->flags & TF_TYPESCRIPT){
+    if(p->pflags & PF_JS){
         if(!eat_token(p, "{")){
             PARSER_THROW("Expect `{` to start a function body");
         }

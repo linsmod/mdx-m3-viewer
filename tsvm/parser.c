@@ -61,6 +61,8 @@ void safeskip_spaces(LPPARSER p) {
 
 
 void update_location(LPCSTR start,LPPARSER p) {
+    skip_spaces(p);
+    skip_comments(p);
     size_t n = p->buffer - start;
     for (LPCSTR s = start; s < p->buffer; s++) {
         if (*s == '\n') {
