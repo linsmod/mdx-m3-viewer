@@ -3,6 +3,7 @@
 #include <StormPort.h>
 #include <assert.h>
 #include <locale.h>
+#include <math.h>
 #include <setjmp.h>
 #include "parser.h"
 #include "shared.h"
@@ -131,7 +132,7 @@ LPSTR read_identifier(LPPARSER p) {
     if (is_identifier(peek_token(p))) {
         return strdup(parse_token(p));
     } else {
-        printf("Expected read_identifier, however got NULL at %s\n",PARSER_DumpLocation(p));
+        // printf("Expected read_identifier, however got NULL at %s\n",PARSER_DumpLocation(p));
         return NULL;
     }
 }
@@ -236,6 +237,7 @@ LPTOKEN alloc_token_here(TOKENTYPE type, LPPARSER p,LPSTR pline){
     LPTOKEN token = alloc_token(type,p);
     token->pline = pline;
     token->sline = source_line(p->file, p->line);
+    ALLOCZ(token->loop, LOOP);
     return token;
 }
 
@@ -245,7 +247,8 @@ PARSER(keyword_type) {
     if (eat_token(p, "extends")) {
         token->secondary = read_identifier(p);
     } else {
-        PARSER_THROW("EXTENDS expected");
+        token->secondary = "handle";
+        // PARSER_THROW("EXTENDS expected");
     }
     return token;
 }
@@ -321,7 +324,6 @@ PARSER(keyword_native) {
 }
 PARSER(keyword_import){
     LPTOKEN token = ALLOC_TOKEN(TT_IMPORT_ALL_ENTRIES, p);
-    LPCSTR module_name = NULL;
     LPTOKEN imports = NULL;
     // 检查是否是命名空间导入: import * as namespace from 'module'
     if (eat_token(p, "*")) {
@@ -530,8 +532,8 @@ PARSER(keyword_let) {
 PARSER(keyword_new) {
     LPTOKEN token = ALLOC_TOKEN(TT_CALL, p);
     token->flags |= TF_NEW;
-    token->secondary = read_identifier(p); // typename
-    assert(token->secondary);
+    token->primary = read_identifier(p); // classname
+    assert(token->primary);
     if(eat_token(p, "(")){ // typescript args
         if(!eat_token(p, ")")){
             token->args = read_single_identifier(p);
@@ -769,7 +771,7 @@ PARSER(read_single_identifier) {
     } 
     else if(eat_token(p, "[")) {
         left = ALLOC_TOKEN(TT_CALL, p);
-        left->primary = "Array.constructor";
+        left->primary = "Array_constructor";
         left->args = read_single_identifier(p);
     }
     else {
@@ -924,7 +926,51 @@ PARSER(statement_call) {
     return parse_logical_expression(p);
 }
 PARSER(statement_for) {
-    assert(false);
+    LPTOKEN token = ALLOC_TOKEN(TT_FOR, p);
+    
+    // TypeScript style: for (initializer; condition; increment) { body }
+    if (!eat_token(p, "(")) {
+        PARSER_THROW("Expected '(' in for statement");
+    }
+    
+    // Parse initializer
+    if (!eat_token(p, ";")) {
+        token->loop->init = parse_logical_expression(p);
+        if (!eat_token(p, ";")) {
+            PARSER_THROW("Expected ';' in for statement");
+        }
+    }
+    
+    // Parse condition
+    if (!eat_token(p, ";")) {
+        token->loop->condition = parse_logical_expression(p);
+        if (!eat_token(p, ";")) {
+            PARSER_THROW("Expected ';' in for statement");
+        }
+    }
+    
+    // Parse increment
+    if (!eat_token(p, ")")) {
+        token->loop->stmt = parse_logical_expression(p); // auto closed `)`
+    }
+    
+    // Parse body
+    if (eat_token(p, "{")) {
+        while (!eat_token(p, "}")) {
+            if (!parse_stmt(p, token)) {
+                FREE(token);
+                PARSER_THROW("Invalid statement in for block");
+            }
+        }
+    } else {
+        // Single statement syntax
+        if (!parse_stmt(p, token)) {
+            FREE(token);
+            PARSER_THROW("Expected statement in for body");
+        }
+    }
+    
+    return token;
 }
 PARSER(statement_local) {
     LPTOKEN token = ALLOC_TOKEN(TT_VARDECL,p);
@@ -1090,13 +1136,23 @@ PARSER(keyword_function) {
         while(!eat_token(p, "}")){
             parse_stmt(p, token);
         }
+
+        //IIFE（Immediately Invoked Function Expression）
+        LPTOKEN target = token;
         while(eat_token(p, "(")){
-            token->flags|=TF_INPLACECALL;
-            token->args = read_single_identifier(p);
+            target->next = ALLOC_TOKEN(TT_CALL, p);
+            target = target->next;
+            
+            target->primary = "<inplacecall>";
+            target->args = read_single_identifier(p);
             if(!eat_token(p, ")"))
             {
                 PARSER_THROW("Unclosing opened arg list");
             }
+            
+        }
+        if(token->next){
+            token->flags|= TF_INPLACECALL;
         }
     }
     else{

@@ -21,6 +21,10 @@ extern char *strdup(const char *s);
 
 #define SAFE_DELETE(x, func) if (x) { func(x); (x) = NULL; }
 
+#define ALLOCZ(VAR,type) \
+(VAR)=vmext_alloc(sizeof(type)); \
+memset((VAR), 0, sizeof(type))
+
 #define FOR_LOOP(property, max) \
 for (DWORD property = 0, end = max; property < end; ++property)
 

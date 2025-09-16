@@ -5,4 +5,10 @@ globals
 
     constant real      Math.PI                            = 3.14159
 
-endglobals    
+endglobals
+
+type Array
+type Float32Array
+type Math
+
+native Array_constructor takes integer size returns Array

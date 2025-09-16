@@ -5,7 +5,7 @@
 DWORD console_log(LPJASS j){
 
 }
-JASSNATIVEFUNC proto_funcs[] = {
+JASSFUNC proto_funcs[] = {
     {.name="log",.func=console_log},
     {0}
 };

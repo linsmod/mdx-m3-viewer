@@ -2,13 +2,13 @@ cmake_minimum_required(VERSION 3.10)
 project(tsvm C)
 
 # 编译选项
-set(CMAKE_C_FLAGS "-Wall -Wextra -std=c99")
+set(CMAKE_C_FLAGS "-Wall -Wextra -Werror -std=c99")
 set(CMAKE_C_FLAGS_DEBUG "-O0 -g")
 set(CMAKE_C_FLAGS_RELEASE "-O3")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-parameter")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-parameter -Wno-unused-function")
 
 # 链接库
 set(CMAKE_EXE_LINKER_FLAGS "-lm")

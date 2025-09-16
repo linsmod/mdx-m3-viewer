@@ -13,7 +13,7 @@
 #define JASS_UNM "-"
 #define JASS_COMMA ","
 #define TYPE_AUTO "auto_type"
-#define JASS_OPERATOR(NAME) { #NAME, NAME }
+#define VMFUNC(NAME,TYPE) { #NAME, NAME,TYPE,0,0,0,0,0}
 #define INF_LOOP_PROTECTION 1024
 
 #define assert_type(var, type) assert(jass_checktype(var, type))
@@ -29,10 +29,8 @@ VAR->type = &jass_types[TYPE];
 
 #define JASS_SET_VALUE(VAR, VALUE, SIZE) \
 jass_setnull(VAR); \
-if (VALUE) { \
   (VAR)->value = vmext_alloc(SIZE); \
   memcpy((VAR)->value, VALUE, SIZE); \
-}
 
 #define JASS_CMPOP(NAME, OP) \
 DWORD NAME(LPJASS j) { \
@@ -100,6 +98,7 @@ struct jass_type {
     LPCJASSTYPE inherit;
     LPJASSTYPE next;
     LPCSTR name;
+    JASSTYPEID typeid;
 };
 struct jass_class{
     LPCJASSTYPE inherit;
@@ -114,14 +113,17 @@ struct jass_pram {
 };
 
 struct jass_function {
-    LPJASSPARAM params;
-    LPCJASSTYPE returns;
-    LPJASSFUNC next;
+    // shared fields
     LPCSTR name;
+    DWORD (*f)(LPJASS j);
+    JASSTYPEID rettype;
+    LPJASSFUNC next;
+
+    // code function fields
+    LPCJASSTYPE returns;
+    LPJASSPARAM params;
     LPCTOKEN code;
-    DWORD (*nativefunc)(LPJASS j);
     BOOL constant;
-    LPCJASSTYPE clstype;
 };
 
 struct jass_array {
@@ -157,7 +159,7 @@ struct jass_s {
     LPJASSDICT globals;
     LPJASSTYPE types;
     LPJASSFUNC functions;
-    LPJASSFUNC anonymous_functions;
+    LPJASSFUNC lost;
     JASSVAR stack[MAX_JASS_STACK];
     DWORD num_stack;
     LPJASSVAR stack_pointer;

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE  // 为了使用高级特性（可选）
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -120,10 +121,14 @@ BOOL try_extensions(const char* base, char* output, size_t out_size) {
 }
 
 // 从 start_dir 开始向上查找 node_modules/<package>
-LPCSTR find_node_modules_package(const char* start_dir, const char* package_name) {
+LPSTR find_node_modules_package(const char* start_dir, const char* package_name) {
         char candidate[PATH_MAX];
-        snprintf(candidate, sizeof(candidate), "%s/node_modules/%s", app_base, package_name);
-        LPCSTR path = strdup(candidate);
+        int ret = snprintf(candidate, sizeof(candidate), "%s/node_modules/%s", app_base, package_name);
+        if (ret < 0 || (size_t)ret >= sizeof(candidate)) {
+            // 如果结果可能被截断，返回NULL
+            return NULL;
+        }
+        LPSTR path = strdup(candidate);
         if(dir_exists(path)){
             return path;
         }
@@ -151,7 +156,6 @@ char* vmext_resolvepath(const char* name, const char* initiator) {
     assert(name != NULL);
     char fullPath[PATH_MAX] = {0};
     char resolvedPath[PATH_MAX] = {0};
-    char* result = NULL;
 
     BOOL has_ext = has_extension(name);
 
@@ -189,27 +193,32 @@ char* vmext_resolvepath(const char* name, const char* initiator) {
         }
 
         if(has_ext){
-            snprintf(fullPath, sizeof(fullPath), "%s/%s", baseDir, name);
-            if (realpath(fullPath, resolvedPath)) {
-                if (file_exists(resolvedPath)) {
-                    return strdup(resolvedPath);
+            int ret = snprintf(fullPath, sizeof(fullPath), "%s/%s", baseDir, name);
+            if (ret >= 0 && (size_t)ret < sizeof(fullPath)) {
+                if (realpath(fullPath, resolvedPath)) {
+                    if (file_exists(resolvedPath)) {
+                        return strdup(resolvedPath);
+                    }
+                    // 尝试加扩展名
+                    if (try_extensions(resolvedPath, resolvedPath, sizeof(resolvedPath))) {
+                        return strdup(resolvedPath);
+                    }
+                }
+            }
+        }
+        else{
+            int ret = snprintf(fullPath, sizeof(fullPath)-1, "%s/%s", baseDir, name);
+            if (ret >= 0 && (size_t)ret < sizeof(fullPath)-1) {
+                fullPath[sizeof(fullPath)-1] = '\0'; // 确保字符串终止
+                if (realpath(fullPath, resolvedPath)) {
+                    if (file_exists(resolvedPath)) {
+                        return strdup(resolvedPath);
+                    }
                 }
                 // 尝试加扩展名
                 if (try_extensions(resolvedPath, resolvedPath, sizeof(resolvedPath))) {
                     return strdup(resolvedPath);
                 }
-            }
-        }
-        else{
-            snprintf(fullPath, sizeof(fullPath), "%s/%s", baseDir, name);
-            if (realpath(fullPath, resolvedPath)) {
-                if (file_exists(resolvedPath)) {
-                    return strdup(resolvedPath);
-                }
-            }
-            // 尝试加扩展名
-            if (try_extensions(resolvedPath, resolvedPath, sizeof(resolvedPath))) {
-                return strdup(resolvedPath);
             }
         }
         return NULL;
@@ -228,7 +237,7 @@ char* vmext_resolvepath(const char* name, const char* initiator) {
     }
 
     const char* lookup_start = initiator ? initiator : app_base;
-    LPCSTR package_dir = find_node_modules_package(lookup_start, pkg_name);
+    LPSTR package_dir = find_node_modules_package(lookup_start, pkg_name);
     if (!package_dir) {
         return NULL;
     }
@@ -308,7 +317,8 @@ void vmext_skipbom(LPSTR buffer) {
 
 DWORD vmext_createthread(HANDLE (func)(HANDLE), HANDLE args) {
     // 简单的线程实现 - 在实际应用中需要真正的线程支持
-    return (DWORD)func(args);
+    assert(0);
+    return -1;
 }
 
 void vmext_free(HANDLE ptr) {

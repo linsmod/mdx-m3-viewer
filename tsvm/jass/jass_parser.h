@@ -23,6 +23,7 @@ typedef enum {
     TT_IF,
     TT_SET,
     TT_LOOP,
+    TT_FOR,
     TT_ELSE,
     TT_EXITWHEN,
     TT_WHILE,
@@ -66,7 +67,7 @@ enum{
     PF_JASS =1,
     PF_JS=2,
 };
-
+KNOWN_AS(loop_s, LOOP)
 struct token {
     TOKENTYPE ttype;
     LPSTR primary;
@@ -79,6 +80,12 @@ struct token {
     LPTOKEN condition;
     LPTOKEN elseblock;
     LPTOKEN index;
+    struct loop_s{
+        LPTOKEN init; // for (init;cond;..)
+        LPTOKEN condition;
+        LPTOKEN increment;
+        LPTOKEN stmt;
+    }* loop;
     LPCSOURCEREF location;
     LPSTR pline; // optional parserline for debugging
     LPSTR sline; 

@@ -10,7 +10,8 @@
 #define INDENT(depth) \
 FOR_LOOP(i, depth) fprintf(stdout," ");
 
-static __thread int depth = 0;
+
+
 
 #define API_ALLOC(TYPE, NAME) TYPE *NAME = jass_newhandle(j, sizeof(TYPE), #NAME);
 
@@ -18,7 +19,6 @@ KNOWN_AS(jass_function, JASSFUNC);
 KNOWN_AS(jass_type, JASSTYPE);
 KNOWN_AS(jass_class, JASSCLASS);
 KNOWN_AS(jass_var, JASSVAR);
-KNOWN_AS(jass_cfunction, JASSNATIVEFUNC);
 KNOWN_AS(jass_context, JASSCONTEXT);
 KNOWN_AS(vm_program, VMPROGRAM);
 KNOWN_AS(jass_s, JASS);
@@ -60,17 +60,18 @@ typedef enum {
     UNIT_STATE_MAX_MANA,
 } UNITSTATE;
 
-typedef DWORD (*LPNATIVEFUNC)(LPJASS);
+typedef DWORD (*CFUNC)(LPJASS);
 
 // must sync with jass_types
 typedef enum {
+    jasstype_handle,
+    jasstype_nothing,
     jasstype_integer,
     jasstype_real,
     jasstype_string,
     jasstype_boolean,
     jasstype_code,
-    jasstype_handle,
-    jasstype_cfunction,
+    jasstype_function,
     jasstype_auto,
     jasstype_type,
 } JASSTYPEID;
@@ -83,8 +84,8 @@ typedef enum{
 
 struct jass_cfunction {
     LPCSTR name;
-    LPNATIVEFUNC func;
-    LPCSTR stmt;
+    CFUNC func;
+    JASSTYPEID returns;
 };
 
 struct vm_program {
@@ -122,7 +123,7 @@ LONG jass_checkinteger(LPJASS j, int index);
 FLOAT jass_checknumber(LPJASS j, int index);
 BOOL jass_checkboolean(LPJASS j, int index);
 LPCSTR jass_checkstring(LPJASS j, int index);
-LPCSTR jass_checktypeof(LPJASS j, int index) ;
+LPJASSTYPE jass_checktypeof(LPJASS j, int index) ;
 LPCJASSFUNC jass_checkcode(LPJASS j, int index);
 HANDLE jass_checkhandle(LPJASS j, int index, LPCSTR type);
 BOOL jass_toboolean(LPJASS j, int index);
