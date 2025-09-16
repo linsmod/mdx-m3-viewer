@@ -71,6 +71,11 @@ void jass_setnull(LPJASSVAR var);
 static void export_var(LPJASS j,LPCSTR name);
 void eval_FUNCTION(LPJASS j, LPCTOKEN token);
 
+LPJASSDICT alloc_dict(){
+    LPJASSDICT dict= JASSALLOC(dict,JASSDICT);
+    return dict;
+}
+
 BOOL atob(LPCSTR str) {
     return !strcmp(str, "true");
 }
@@ -414,24 +419,9 @@ static LPJASSVAR find_dict(LPJASSDICT dict, LPCSTR name) {
 static LPJASSDICT copy_dict(LPJASSDICT dict, LPCSTR name) {
     FOR_EACH_LIST(JASSDICT, item, dict) {
         if (!strcmp(item->key, name)) {
-            LPJASSDICT copy = JASSALLOC(JASSDICT);
+            LPJASSDICT copy  = alloc_dict();
             copy->key = name;
-            copy->next = NULL;
             copy->value = item->value;
-            copy->declScope = Unset;
-            return copy;
-        }
-    }
-    return NULL;
-}
-static LPJASSDICTNS copy_dict_ns(LPJASSDICT dict, LPCSTR name,LPSTR ns) {
-    FOR_EACH_LIST(JASSDICT, item, dict) {
-        if (!strcmp(item->key, name)) {
-            LPJASSDICTNS copy = JASSALLOC(JASSDICTNS);
-            copy->key = name;
-            copy->next = NULL;
-            copy->value = item->value;
-            copy->ns = ns;
             return copy;
         }
     }
@@ -562,7 +552,7 @@ static LPJASSVAR ensure_array_value(LPJASS j, LPJASSVAR dest, DWORD index) {
             return &var->value;
         }
     }
-    LPJASSARRAY jv = JASSALLOC(JASSARRAY);
+    LPJASSARRAY jv  = JASSALLOC(jv , JASSARRAY);
     jv->value.type = dest->type;
     jv->index = index;
     ADD_TO_LIST(jv, dest->_array);
@@ -885,7 +875,7 @@ DWORD VM_EvalCall(LPJASS j, LPCTOKEN token) {
     DWORD stacksize = j->num_stack;
     LPCSTR fn = token->primary;
     if(token->flags & TF_NEW){
-
+        assert(0);
     }
     if (!strcmp(token->primary, "CommentString") && token->args) {
         fprintf(stdout, "%s\n", token->args->primary);
@@ -989,11 +979,9 @@ static void jass_set_array_value(LPJASS j, LPJASSVAR dest, LPCTOKEN index, LPCTO
 }
 
 LPJASSDICT parse_dict(LPJASS j, LPCTOKEN token) {
-    LPJASSDICT item = JASSALLOC(JASSDICT);
+    LPJASSDICT item  = alloc_dict();
     item->value.constant = token->flags & TF_CONSTANT;
     item->value.array = token->flags & TF_ARRAY;
-    item->value.refcount = NULL;
-    item->next = NULL;
     if(token->flags & TF_AUTOTYPE){
         //nothing to do
         //type will be set in jass_set_value
@@ -1018,7 +1006,7 @@ TOKENFUNC(TOKENS);
 TOKENFUNC(SINGLETOKEN);
 
 TOKENFUNC(TYPEDEF) {
-    LPJASSTYPE type = JASSALLOC(JASSTYPE);
+    LPJASSTYPE type  = JASSALLOC(type , JASSTYPE);
     type->name = token->primary;
     type->inherit = find_type(j, token->secondary);
     ADD_TO_LIST(type, j->types);
@@ -1066,6 +1054,13 @@ TOKENFUNC(VARDECL) {
     assert(token->stmt);
     LPJASSDICT vardecl = parse_dict(j, token);
     ADD_TO_LIST(vardecl, jass_stackvalue(j, 0)->env.locals);
+    if(token->flags & TF_VARLIST){
+        assert(token->next);
+        FOR_EACH_LIST(TOKEN, item, token->next){
+            LPJASSDICT vardecl = parse_dict(j, item);
+            ADD_TO_LIST(vardecl, jass_stackvalue(j, 0)->env.locals);
+        }
+    }
 }
 
 TOKENFUNC(GLOBAL) {
@@ -1074,7 +1069,7 @@ TOKENFUNC(GLOBAL) {
 }
 
 TOKENFUNC(FUNCTION) {
-    LPJASSFUNC func = JASSALLOC(JASSFUNC);
+    LPJASSFUNC func  = JASSALLOC(func , JASSFUNC);
     func->params = NULL;
     func->name = token->primary;
     func->code = token->stmt;
@@ -1083,7 +1078,7 @@ TOKENFUNC(FUNCTION) {
     assert(func->returns);
     assert(!token->args);
     FOR_EACH_LIST(TOKEN, arg, token->params) {
-        LPJASSPARAM param = JASSALLOC(JASSPARAM);
+        LPJASSPARAM param  = JASSALLOC(param , JASSPARAM);
         param->name = arg->secondary;
          param->type = find_type(j, arg->primary);
         param->next = NULL;
@@ -1102,6 +1097,11 @@ TOKENFUNC(FUNCTION) {
     // Declare anonymous function to stack
     if(!strcmp(func->name, "<anonymous>")){
         jass_pushfunction(j, func);
+    }
+
+    if(token->flags & TF_INPLACECALL){
+        // todo call 
+        assert(0);
     }
 }
 
@@ -1134,7 +1134,7 @@ TOKENFUNC(LOOP) {
 
 TOKENFUNC(IMPORT_RUNONLY){
     // 简单导入: import 'module'
-    LPJASSDICT module_dict = JASSALLOC(JASSDICT);
+    LPJASSDICT module_dict  = alloc_dict();
     module_dict->key = strdup(token->primary);  // module name
     module_dict->value.type = find_type(j, "handle");
     jass_setnull(&module_dict->value);
@@ -1196,7 +1196,7 @@ TOKENFUNC(IMPORT_ENTRY_LIST) {
 }
 
 TOKENFUNC(EXPORT_DEFAULT_ENTRY) {
-    LPJASSDICT default_export = JASSALLOC(JASSDICT);
+    LPJASSDICT default_export  = alloc_dict();
     default_export->key = "default";
     default_export->value = *(jass_topvalue(j)); // 假设默认导出在栈顶
     jass_pop(j, 1);
@@ -1214,7 +1214,7 @@ TOKENFUNC(EXPORT_ADD_ENTRY) {
 
 TOKENFUNC(EXPORT_ALL_ENTRIES){
     // 命名空间导出
-    LPJASSDICT export_entry = JASSALLOC(JASSDICT);
+    LPJASSDICT export_entry  = alloc_dict();
     export_entry->key = token->primary;  // namespace name
     export_entry->value.type = find_type(j, "namespace");
     jass_setnull(&export_entry->value);
@@ -1226,7 +1226,7 @@ TOKENFUNC(EXPORT_ALL_ENTRIES){
 TOKENFUNC(EXPORT_ENTRY_LIST){
     // 将所有导出的变量添加到导出表中
     FOR_EACH_LIST(TOKEN, export_item, token->args) {
-        LPJASSDICT entry = JASSALLOC(JASSDICT);
+        LPJASSDICT entry  = alloc_dict();
         entry->key = export_item->primary;  // export name
         
         // 如果有别名，使用别名作为key
@@ -1320,10 +1320,11 @@ void jass_registerfunc(LPJASS j,LPJASSFUNC func){
 
 
 LPJASSMODULE jass_newmodule(LPCSTR filname,LPCSTR alias) {
-    LPJASSMODULE module = JASSALLOC(JASSMODULE);
+    LPJASSMODULE module  = JASSALLOC(module , JASSMODULE);
+    
     module->evaluating = true;
     module->loaded = true;
-    module->exports = JASSALLOC(JASSDICT);
+    module->exports  = alloc_dict();
     module->name = alias;
     module->file = filname;
     module->state = NULL;
@@ -1346,7 +1347,7 @@ DWORD filepflags(LPCSTR fileName){
 LPJASS jass_newstate(LPJASSMODULE module) {
     if(!module)
         module = jass_newmodule(vminitscript,vminitscript);
-    LPJASS j = JASSALLOC(JASS);
+    LPJASS j  = JASSALLOC(j , JASS);
     j->stack_pointer = j->stack;
     j->this_module = module;
     j->this_module->state = j;
@@ -1372,7 +1373,7 @@ LPJASSMODULE jass_loadmodule(LPJASS loader,LPCSTR search) {
     }
 
     // 2. 创建新模块
-    module = JASSALLOC(JASSMODULE);
+    JASSALLOC(module , JASSMODULE);
     module->name = strdup(search);
     module->state = jass_newstate(module);
     module->exports = NULL;
@@ -1480,7 +1481,7 @@ DWORD jass_call(LPJASS j, DWORD args) {
 //         printf("%s\n", func->name);
 // #endif
         FOR_EACH_LIST(JASSPARAM, arg, func->params) {
-            LPJASSDICT local = JASSALLOC(JASSDICT);
+            LPJASSDICT local  = alloc_dict();
             local->key = arg->name;
             local->value.type = arg->type;
             jass_copy(j, &local->value, &j->stack_pointer[argnum]);
@@ -1578,18 +1579,17 @@ static void export_var(LPJASS j,LPCSTR name) {
     if(!dict){
         LPCJASSFUNC func =  find_function(j, name);
         if(func){
-            LPJASSDICT entry = JASSALLOC(JASSDICT);
+            LPJASSDICT entry  = alloc_dict();
             entry->value.type = find_type(j, "cfunction");
             entry->key = strdup(name);
             entry->declScope = ExportVars;
-            entry->next = NULL;
             ADD_TO_LIST(entry, j->this_module->exports);
             return;
         }
         printf("INFO: Access undefined var when do export: `%s\n",name);
         return;
     }
-    LPJASSDICT entry = JASSALLOC(JASSDICT);
+    LPJASSDICT entry  = alloc_dict();
     entry->value.type = dict->value.type;
     entry->key = strdup(name);
     jass_copy(j, &entry->value, &dict->value);

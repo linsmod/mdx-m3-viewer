@@ -11,7 +11,6 @@ typedef enum {
     TT_TYPEDEF,
     TT_MEMBERDEF,
     TT_VARDECL,
-    TT_NEW,
     TT_GLOBAL,
     TT_IDENTIFIER,
     TT_ARRAYACCESS,
@@ -49,7 +48,7 @@ enum {
     TF_ARRAY         = 1 << 2,
     TF_FUNCTION      = 1 << 3,
     TF_CLASS         = 1 << 6,
-    TF_VAR           = 1 << 7,
+    TF_VARLIST       = 1 << 7, // decl multi vars expr: var a,b,c;
     TF_LET           = 1 << 8,
     TF_TYPEOF        = 1 << 9,
     TF_ANONYMOUS    = 1 << 10,
@@ -58,8 +57,9 @@ enum {
     TF_PRIVATE       = 1 << 13,
     TF_PROTECTED     = 1 << 14,
     TF_PROTO_FIELD   = 1 << 15,
-    TF_PROTO_FUNC    = 1 << 16,
+    TF_INPLACECALL    = 1 << 16, // 声明后就地调用 function abc(){}();
     TF_NEW = 1 << 17,
+    TF_BRACEOPEN = 1 << 18,
 };
 
 enum{

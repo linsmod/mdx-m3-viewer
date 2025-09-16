@@ -60,7 +60,7 @@ BOOL is_fourcc(LPCSTR tok);
 DWORD is_modifier(LPCSTR str);
 
 BOOL is_multiplicative_operator(LPCSTR str) {
-    return !strcmp(str, "*") || !strcmp(str, "/");
+    return !strcmp(str, "*") || !strcmp(str, "/") || !strcmp(str, "%");
 }
 
 BOOL is_additive_operator(LPCSTR str) {
@@ -92,6 +92,7 @@ LPCSTR jass_getoperator(LPCSTR str) {
     if (!strcmp(str, "-")) return "__sub";
     if (!strcmp(str, "*")) return "__mul";
     if (!strcmp(str, "/")) return "__div";
+    if (!strcmp(str, "%")) return "__mod";
     if (!strcmp(str, "!=")) return "__ne";
     if (!strcmp(str, "==")) return "__eq";
     if (!strcmp(str, ">=")) return "__ge";
@@ -158,10 +159,9 @@ static void parse_member(LPPARSER p, LPTOKEN tdef) {
     // primary
     token->primary = read_identifier(p); // member name
     if(eat_token(p, ":")){
-        token->secondary = read_identifier(p);
+        token->secondary = read_identifier(p); // type
     }
     else if(eat_token(p, "(")){
-        token->flags |= TF_PROTO_FUNC;
         if(!eat_token(p, ")")){
             token->params = parse_ts_function_params(p);
         }
@@ -187,18 +187,18 @@ static void parse_member(LPPARSER p, LPTOKEN tdef) {
     
     }
 }
-static BOOL parse_stmt(LPPARSER p, LPTOKEN function) {
+static BOOL parse_stmt(LPPARSER p, LPTOKEN block) {
     LPTOKEN token = NULL;
     parseClass_t* passClass = eat_keyword(p, function_keywords);
     if (passClass && (token = passClass->func(p))) {
-        PUSH_BACK(TOKEN, token, function->stmt);
+        PUSH_BACK(TOKEN, token, block->stmt);
         while (eat_token(p, ";")) {
             // skip
         }
     }
     else if(p->pflags & PF_JS){
         token = parse_logical_expression(p);
-        PUSH_BACK(TOKEN, token, function->stmt);
+        PUSH_BACK(TOKEN, token, block->stmt);
         while (eat_token(p, ";")) {
             // skip
         }
@@ -212,17 +212,9 @@ LPCSOURCEREF create_source_ref(LPPARSER p);
 
 LPTOKEN alloc_token(TOKENTYPE type, LPPARSER p) {
     LPTOKEN token = ALLOC(TOKEN);
-    token->primary = NULL;
-    token->secondary = NULL;
-    token->ttype = type;
+    memset(token, 0, sizeof(TOKEN));
     token->location = create_source_ref(p);
-    token->stmt = NULL;
-    token->args = NULL;
-    token->params = NULL;
-    token->condition=NULL;
-    token->elseblock = NULL;
-    token->next = NULL;
-    token->pline = NULL;
+    token->ttype = type;
     return token;
 }
 
@@ -276,8 +268,6 @@ PARSER(parse_ts_function_params) {
     LPTOKEN params = NULL;
     while (!params || eat_token(p, ",")) {
         LPTOKEN entry = ALLOC_TOKEN(TT_VARDECL, p);
-        entry->pline = PARSERLINE();
-        entry->sline = source_line(p->file, p->line);
         entry->secondary = read_identifier(p);
         assert(entry->secondary);
         if(eat_token(p, ":")){
@@ -320,6 +310,7 @@ PARSER(parse_function_decl) {
     else{
         token->secondary = "auto";
     }
+
     return token;
 }
 
@@ -435,7 +426,7 @@ PARSER(keyword_export) {
         return token;
     }
     else if(peek_token_eq(p, "var")){
-        token->flags |= TF_VAR;
+        
         if(!parse_stmt(p, token)){
             PARSER_THROW("Expected expression after 'export var'");
         }
@@ -537,42 +528,21 @@ PARSER(keyword_let) {
 }
 
 PARSER(keyword_new) {
-    LPTOKEN token = ALLOC_TOKEN(TT_NEW, p);
-    assert(0);
+    LPTOKEN token = ALLOC_TOKEN(TT_CALL, p);
+    token->flags |= TF_NEW;
     token->secondary = read_identifier(p); // typename
-    
-    if (eat_token(p, ":")) {
-        token->primary = read_identifier(p);
-    }
-
-    if (eat_token(p, "=")) {
-        token->stmt = keyword_function(p);
-        
-        if (!token->primary) {
-            if (token->stmt->ttype == TT_INTEGER) {
-                token->primary = "integer";
-            }
-            else if (token->stmt->ttype == TT_REAL) {
-                token->primary = "real";
-            }
-            else if (token->stmt->ttype == TT_STRING) {
-                token->primary = "string";
-            }
-            else if (token->stmt->ttype == TT_BOOLEAN) {
-                token->primary = "boolean";
-            }
-            else {
-                token->flags |= TF_AUTOTYPE;
-                token->primary = "auto"; 
+    assert(token->secondary);
+    if(eat_token(p, "(")){ // typescript args
+        if(!eat_token(p, ")")){
+            token->args = read_single_identifier(p);
+            if(!eat_token(p, ")")){
+                PARSER_THROW("Expected ')' in call args");
             }
         }
-    } else {
-        // 没有初始化表达式，必须要有显式类型
-        if (!token->primary) {
-            PARSER_THROW("Variable declaration without initializer must have explicit type");
-        }
     }
-    
+    else{
+        PARSER_THROW("bad NEW syntax.");
+    }
     return token;
 }
 PARSER(keyword_var) {
@@ -582,8 +552,8 @@ PARSER(keyword_var) {
     // var count: integer = 42
     // var name: string
     // var x=0,y=1;
+    // var name,value;
     LPTOKEN token = ALLOC_TOKEN(TT_VARDECL, p);
-    token->flags |= TF_VAR;
     
     token->secondary = read_identifier(p); // name
     
@@ -592,33 +562,42 @@ PARSER(keyword_var) {
     }
 
     if (eat_token(p, "=")) {
-        token->stmt = parse_logical_expression(p);
-        
-        if (!token->primary) {
-            if (token->stmt->ttype == TT_INTEGER) {
-                token->primary = "integer";
-            }
-            else if (token->stmt->ttype == TT_REAL) {
-                token->primary = "real";
-            }
-            else if (token->stmt->ttype == TT_STRING) {
-                token->primary = "string";
-            }
-            else if (token->stmt->ttype == TT_BOOLEAN) {
-                token->primary = "boolean";
-            }
-            else {
-                token->flags |= TF_AUTOTYPE;
-                token->primary = "auto"; 
-            }
+        parse_stmt(p,token);
+    }
+    if(!token->primary && token->stmt){
+        if (token->stmt->ttype == TT_INTEGER) {
+            token->primary = "integer";
         }
-    } else {
-        // 没有初始化表达式，必须要有显式类型
-        if (!token->primary) {
-            PARSER_THROW("Variable declaration without initializer must have explicit type");
+        else if (token->stmt->ttype == TT_REAL) {
+            token->primary = "real";
+        }
+        else if (token->stmt->ttype == TT_STRING) {
+            token->primary = "string";
+        }
+        else if (token->stmt->ttype == TT_BOOLEAN) {
+            token->primary = "boolean";
         }
     }
-    
+    if (!token->primary) {
+        token->flags |= TF_AUTOTYPE;
+        token->primary = "auto"; 
+    }
+    LPTOKEN current  = token;
+    while(eat_token(p, ",")){
+        current->next = ALLOC_TOKEN(TT_VARDECL, p);
+        current = current->next;
+        token->flags |= TF_VARLIST;
+        if (eat_token(p, ":")) {
+            current->primary = read_identifier(p);
+        }
+        else{
+            current->primary = strdup(token->primary); // use first var type
+        }
+
+        if (eat_token(p, "=")) {
+            current->stmt = parse_logical_expression(p);
+        }
+    }
     return token;
 }
 
@@ -755,6 +734,7 @@ PARSER(read_single_identifier) {
         assert(left->args);
     } else if (eat_token(p, "(")) {
         left = parse_logical_expression(p);
+        left->flags |= TF_BRACEOPEN;
     } else if (is_integer(tok)) {
         left = alloc_ident_token(p, TT_INTEGER);
     } else if (is_float(tok)) {
@@ -841,14 +821,14 @@ PARSER(parse_comparison_expression) {
     }
     return left;
 }
-
+int last_line  = 0;
 PARSER(parse_logical_expression) {
-
-            if(p->line==367){
-                printf("debuggerBreak\n");
-            }
+    if(p->line>=659 && strstr(p->file,"quat")){
+        printf("debuggerBreak at %d\n",p->line);
+    }
     LPTOKEN left = parse_comparison_expression(p);
     assert(left);
+    last_line = p->line;
     if (is_logic_operator(peek_token(p))) {
         LPTOKEN oper = parse_operator_token(p);
         LPTOKEN right = parse_logical_expression(p);
@@ -965,34 +945,54 @@ PARSER(statement_if) {
     LPTOKEN token = ALLOC_TOKEN(TT_IF,p);
     LPTOKEN target = token;
     token->condition = parse_logical_expression(p);
+    int single = true;
     while (eat_token(p, "{")) {
-        while (!eat_token(p, "}")){
-            parse_stmt(p, target);
+        single = false;
+        // 解析当前块：{ ... }
+        while (!eat_token(p, "}")) {
+            if (!parse_stmt(p, target)) {
+                FREE(token);
+                PARSER_THROW("Invalid statement in if/else block");
+            }
         }
-        if (eat_token(p, "else")){
-            if(eat_token(p, "if")){
-                LPTOKEN next = ALLOC_TOKEN(TT_ELSE,p);
+        // 成功解析完 } 后，检查 else
+        if (eat_token(p, "else")) {
+            if (eat_token(p, "if")) {
+                // 处理 else if → 必须是 TT_IF，不是 TT_ELSE！
+                LPTOKEN next = ALLOC_TOKEN(TT_ELSE, p);
                 next->condition = parse_logical_expression(p);
-                if (!eat_token(p, "{")) {
-                    FREE(token);
-                    PARSER_THROW("else if mssing block");
-                }
+
+                // 关键：这里不立即 eat "{", 而是留给 while 循环判断
                 target->elseblock = next;
                 target = next;
+                // ↓ 下次 while 会检查是否 eat "{"
+            } else {
+                // 处理 else → TT_ELSE
+                LPTOKEN next = ALLOC_TOKEN(TT_ELSE, p);
+                target->elseblock = next;
+                target = next;
+                // ↓ 同样，交给 while 循环判断 "{"
             }
-            else{
-                LPTOKEN next = ALLOC_TOKEN(TT_ELSE,p);
-                target->elseblock = next;
-                target = next;
+            if(peek_token_eq(p, "{")){
+                continue;
+            }
+            // `single stmt syntax`
+            if (parse_stmt(p, target)) {
+                break;
+            }
+            FREE(token);
+            PARSER_THROW("Syntax error: IF `single stmt syntax` requires at least one stmt");
+        }
+        // 如果没有 else，while 循环结束
+    }
+   
+    if(p->pflags & PF_JS){
+        if(single && !token->next){
+            if (!parse_stmt(p, token)) {
+                FREE(token);
+                PARSER_THROW("Syntax error: IF `single stmt syntax` requires at least one stmt");
             }
         }
-    }
-    if(p->pflags & PF_JS){
-        return token;
-    }
-    if (!eat_token(p, "then")) {
-        // if(condition) body;
-        parse_stmt(p, target);
         return token;
     }
     while (!eat_token(p, "endif")) {
@@ -1053,7 +1053,7 @@ PARSER(statement_loop) {
 
 PARSER(statement_return) {
     LPTOKEN ret = ALLOC_TOKEN(TT_RETURN,p);
-    ret->stmt = parse_logical_expression(p);
+    parse_stmt(p,ret);
     return ret;
 }
 PARSER(statement_break) {
@@ -1077,28 +1077,37 @@ parseClass_t function_keywords[] = {
     { "const", keyword_const },
      { "while", statement_while },
      { "break", statement_break },
+     { "function", keyword_function },
     { 0 },
 };
 
 PARSER(keyword_function) {
-    LPTOKEN function = parse_function_decl(p);
+    LPTOKEN token = parse_function_decl(p);
     if(p->pflags & PF_JS){
         if(!eat_token(p, "{")){
             PARSER_THROW("Expect `{` to start a function body");
         }
         while(!eat_token(p, "}")){
-            parse_stmt(p, function);
+            parse_stmt(p, token);
+        }
+        while(eat_token(p, "(")){
+            token->flags|=TF_INPLACECALL;
+            token->args = read_single_identifier(p);
+            if(!eat_token(p, ")"))
+            {
+                PARSER_THROW("Unclosing opened arg list");
+            }
         }
     }
     else{
         while (!eat_token(p, "endfunction")) {
-            if (!parse_stmt(p, function)) {
-                FREE(function);
+            if (!parse_stmt(p, token)) {
+                FREE(token);
                 return NULL;
             }
         }
     }
-    return function;
+    return token;
 }
 
 parseClass_t global_keywords[] = {
@@ -1125,6 +1134,9 @@ LPTOKEN JASS_ParseTokens(LPPARSER p) {
     if (setjmp(exception_env) == 0) {
         LPTOKEN token = NULL;
         while (*peek_token(p)) {
+            if(p->line>=634 && strstr(p->file,"quat")){
+                printf("debuggerBreak at %d\n",p->line);
+            }
             parseClass_t* parseClass = eat_keyword(p, global_keywords);
             if (parseClass && (token = parseClass->func(p))) {
                 PUSH_BACK(TOKEN, token, tokens);

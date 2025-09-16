@@ -205,9 +205,6 @@ void *find_in_array(void *array, long sizeofelem, LPCSTR name) {
     return NULL;
 }
 LPCSOURCEREF create_source_ref(LPPARSER p) {
-    LPCSTR start = p->buffer;
-    skip_spaces(p);
-    update_location(start, p);
     LPSOURCEREF ref = vmext_alloc(sizeof(SOURCEREF));
     ref->file = p->file;
     ref->line = p->line;

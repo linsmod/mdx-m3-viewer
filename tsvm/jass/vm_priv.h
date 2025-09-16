@@ -17,7 +17,10 @@
 #define INF_LOOP_PROTECTION 1024
 
 #define assert_type(var, type) assert(jass_checktype(var, type))
-#define JASSALLOC(type) vmext_alloc(sizeof(type))
+
+#define JASSALLOC(VAR,type) \
+(VAR)=vmext_alloc(sizeof(type)); \
+memset((VAR), 0, sizeof(type))
 
 #define JASS_ADD_STACK(j, VAR, TYPE) \
 LPJASSVAR VAR = &j->stack[j->num_stack++]; \
