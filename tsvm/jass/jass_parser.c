@@ -16,6 +16,8 @@
 #define ALLOC(type) vmext_alloc(sizeof(type))
 LPTOKEN alloc_token_here(TOKENTYPE type, LPPARSER p,LPSTR pline);
 #define ALLOC_TOKEN(type,p) alloc_token_here(type,p,PARSERLINE())
+#define ALLOC_ID_TOKEN(VAR, p,type) (VAR)=alloc_token_here(type,p,PARSERLINE());\
+(VAR)->primary=read_identifier(p);
 #define FREE(val) SAFE_DELETE(val, vmext_free)
 #define PARSER(NAME, ...) static LPTOKEN NAME(LPPARSER p, ##__VA_ARGS__)
 #define STRINGIFY(x) #x
@@ -692,7 +694,7 @@ PARSER(read_string_token){
     LPCSTR peek = peek_token(p);
     LPTOKEN token = NULL;
     if (is_string(peek)) {
-        token = alloc_ident_token(p, TT_STRING);
+        ALLOC_ID_TOKEN(token,p,TT_STRING);
         assert(token->primary[0]=='\"' || token->primary[0]=='\'');
         remove_quotes(token->primary, token->primary[0]);
         return token;
@@ -712,7 +714,7 @@ PARSER(read_single_identifier) {
         assert(left->args);
     }
     else if (eat_token(p, "function")) {
-        left = alloc_ident_token(p, TT_IDENTIFIER);
+        ALLOC_ID_TOKEN(left,p,TT_IDENTIFIER);
         left->flags |= TF_FUNCTION;
     }
     else if (eat_token(p, "new")) {
@@ -738,26 +740,26 @@ PARSER(read_single_identifier) {
         left = parse_logical_expression(p);
         left->flags |= TF_BRACEOPEN;
     } else if (is_integer(tok)) {
-        left = alloc_ident_token(p, TT_INTEGER);
+         ALLOC_ID_TOKEN(left,p,TT_INTEGER);
     } else if (is_float(tok)) {
-        left = alloc_ident_token(p, TT_REAL);
+        ALLOC_ID_TOKEN(left,p,TT_REAL);
     } else if (is_string(tok)) {
-        left = alloc_ident_token(p, TT_STRING);
+        ALLOC_ID_TOKEN(left,p,TT_STRING);
         assert(left->primary[0]=='\"' || left->primary[0]=='\'');
         remove_quotes(left->primary, left->primary[0]);
     } else if (is_fourcc(tok)) {
-        left = alloc_ident_token(p, TT_FOURCC);
+        ALLOC_ID_TOKEN(left,p,TT_FOURCC);
         remove_quotes(left->primary, '\'');
     } else if (!strcmp(tok, "true") || !strcmp(tok, "false")) {
-        left = alloc_ident_token(p, TT_BOOLEAN);
+        ALLOC_ID_TOKEN(left,p,TT_BOOLEAN);
     } 
     else if (!strcmp(tok, "undefined")) {
-        left = alloc_ident_token(p, TT_UNDEFINED);
+        ALLOC_ID_TOKEN(left,p,TT_UNDEFINED);
     }
     else if (!strcmp(tok, "null")) {
-        left = alloc_ident_token(p, TT_NULL);
+        ALLOC_ID_TOKEN(left,p,TT_NULL);
     } else if (is_identifier(tok)) {
-        left = alloc_ident_token(p, TT_IDENTIFIER);
+        ALLOC_ID_TOKEN(left,p,TT_IDENTIFIER);
         if (eat_token(p, "(")) {
             left->ttype = TT_CALL;
             if (!eat_token(p, ")")) {
@@ -826,7 +828,7 @@ PARSER(parse_comparison_expression) {
 int last_line  = 0;
 PARSER(parse_logical_expression) {
     if(p->line>=659 && strstr(p->file,"quat")){
-        printf("debuggerBreak at %d\n",p->line);
+        // printf("debuggerBreak at %d\n",p->line);
     }
     LPTOKEN left = parse_comparison_expression(p);
     assert(left);
@@ -1143,7 +1145,7 @@ PARSER(keyword_function) {
             target->next = ALLOC_TOKEN(TT_CALL, p);
             target = target->next;
             
-            target->primary = "<inplacecall>";
+            target->primary = "<f_from_return>";
             target->args = read_single_identifier(p);
             if(!eat_token(p, ")"))
             {
@@ -1191,7 +1193,7 @@ LPTOKEN JASS_ParseTokens(LPPARSER p) {
         LPTOKEN token = NULL;
         while (*peek_token(p)) {
             if(p->line>=634 && strstr(p->file,"quat")){
-                printf("debuggerBreak at %d\n",p->line);
+                // printf("debuggerBreak at %d\n",p->line);
             }
             parseClass_t* parseClass = eat_keyword(p, global_keywords);
             if (parseClass && (token = parseClass->func(p))) {

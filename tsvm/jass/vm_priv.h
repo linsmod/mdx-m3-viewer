@@ -14,6 +14,7 @@
 #define JASS_COMMA ","
 #define TYPE_AUTO "auto_type"
 #define VMFUNC(NAME,TYPE) { #NAME, NAME,TYPE,0,0,0,0,0}
+#define VMFUNC2(KEY,NAME,TYPE) { KEY, NAME,TYPE,0,0,0,0,0}
 #define INF_LOOP_PROTECTION 1024
 
 #define assert_type(var, type) assert(jass_checktype(var, type))
@@ -159,7 +160,7 @@ struct jass_s {
     LPJASSDICT globals;
     LPJASSTYPE types;
     LPJASSFUNC functions;
-    LPJASSFUNC lost;
+    LPCJASSFUNC lost;
     JASSVAR stack[MAX_JASS_STACK];
     DWORD num_stack;
     LPJASSVAR stack_pointer;
@@ -169,3 +170,6 @@ struct jass_s {
     LPJASSMODULE imports;
     LPJASSNS import_ns;
 };
+
+void jass_register_Array(LPJASS j);
+void jass_register_Math(LPJASS j);

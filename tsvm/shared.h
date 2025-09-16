@@ -42,10 +42,10 @@ for (type *property = list, *next = list ? (list)->next : NULL; \
 property; \
 property = next, next = next ? next->next : NULL)
 
-#define ADD_TO_LIST(VAR, LIST) VAR->next = LIST; LIST = VAR;
+#define ADD_TO_LIST(VAR, LIST) VAR->next = LIST; LIST = VAR;\
 
 #define FOR_EACH(type, property, array, num) \
-for (type *property = array; property - array < num; property++)
+for (type *property = array; property - array < (long long)(num); property++)
 
 #define REMOVE_FROM_LIST(TYPE, VAR, LIST, DELETER) \
 TYPE **prev = &LIST; \
@@ -65,15 +65,20 @@ for (TYPE *it = LIST; it;) { \
     it = next; \
 }
 
+#include "assert.h"
+#include "stdio.h"
+#include "stdlib.h"
 #define PUSH_BACK(TYPE, VAR, LIST) do{ \
     if (LIST) { \
         TYPE *last##TYPE = LIST; \
-        while (last##TYPE->next) last##TYPE = last##TYPE->next; \
+        while (last##TYPE->next){  \
+            last##TYPE = last##TYPE->next; \
+        }\
         last##TYPE->next = VAR; \
+        if(last##TYPE->next->next==last##TYPE){\
+            fprintf(stderr, "E: VAR copy required on `%s` at %s:%d\n", #TYPE, __FILE__,__LINE__);exit(1);\
+        };\
     } else { \
         LIST = VAR; \
     } \
 }while(0)  
-
-
-

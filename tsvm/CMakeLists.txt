@@ -21,6 +21,8 @@ set(SOURCES
     jass/vm_main.c
     jass/vm_compiler.c
     jass/jass_parser.c
+    jass/jass_array.c
+    jass/jass_math.c
 )
 
 # 头文件路径

@@ -70,7 +70,6 @@ typedef enum {
     jasstype_real,
     jasstype_string,
     jasstype_boolean,
-    jasstype_code,
     jasstype_function,
     jasstype_auto,
     jasstype_type,
