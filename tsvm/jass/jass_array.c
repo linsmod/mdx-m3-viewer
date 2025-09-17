@@ -5,13 +5,14 @@
 #include "vm_ext.h"
 #include <memory.h>
 #include <string.h>
+
 DWORD __Array_constructor(LPJASS j) {
-    LPJASSARRAY array =  ALLOCZ(array, JASSARRAY);
-    return jass_pushhandle(j, array, "Array");
+    LPJASSARRAY array= ALLOCZ(array, JASSARRAY);
+    return jass_pushhandle(j,array,"Array");
 }
 DWORD __Float32Array_constructor(LPJASS j) {
-    LPJASSARRAY array =  ALLOCZ(array, JASSARRAY);
-    return jass_pushhandle(j, array, "Array");
+    LPJASSARRAY array= ALLOCZ(array, JASSARRAY);
+    return jass_pushhandle(j,array,"Float32Array");
 }
 
 static JASSFUNC arrayfuncs[] ={

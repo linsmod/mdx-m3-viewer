@@ -23,6 +23,7 @@ typedef enum {
     TT_IF,
     TT_SET,
     TT_LOOP,
+    TT_DOWHILE,
     TT_FOR,
     TT_ELSE,
     TT_EXITWHEN,
@@ -61,6 +62,7 @@ enum {
     TF_INPLACECALL    = 1 << 16, // 声明后就地调用 function abc(){}();
     TF_NEW = 1 << 17,
     TF_BRACEOPEN = 1 << 18,
+    TF_PUSHSTACK = 1<<19
 };
 
 enum{
@@ -86,7 +88,8 @@ struct token {
         LPTOKEN increment;
         LPTOKEN stmt;
     }* loop;
-    LPCSOURCEREF location;
+    LPTOKEN whilestmt;
+    LPCSOURCEREF sref;
     LPSTR pline; // optional parserline for debugging
     LPSTR sline; 
 };

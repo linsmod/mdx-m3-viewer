@@ -13,11 +13,12 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #define ALLOC(type) vmext_alloc(sizeof(type))
 LPTOKEN alloc_token_here(TOKENTYPE type, LPPARSER p,LPSTR pline);
 #define ALLOC_TOKEN(type,p) alloc_token_here(type,p,PARSERLINE())
 #define ALLOC_ID_TOKEN(VAR, p,type) (VAR)=alloc_token_here(type,p,PARSERLINE());\
-(VAR)->primary=read_identifier(p);
+(VAR)->primary=strdup(parse_token(p));
 #define FREE(val) SAFE_DELETE(val, vmext_free)
 #define PARSER(NAME, ...) static LPTOKEN NAME(LPPARSER p, ##__VA_ARGS__)
 #define STRINGIFY(x) #x
@@ -52,8 +53,8 @@ static LPSTR read_string_literal(LPPARSER p);
 static LPTOKEN ts_right_value(LPPARSER p);
 static LPTOKEN read_single_identifier(LPPARSER p);
 static LPTOKEN parse_ts_function_params(LPPARSER p);
-static BOOL parse_stmt(LPPARSER p, LPTOKEN function)
-;
+static BOOL parse_stmt(LPPARSER p, LPTOKEN function);
+static LPTOKEN keyword_var(LPPARSER p);
 
 BOOL is_integer(LPCSTR tok);
 BOOL is_float(LPCSTR tok);
@@ -190,6 +191,13 @@ static void parse_member(LPPARSER p, LPTOKEN tdef) {
     
     }
 }
+
+#define PARSE_STMT_TO(p,path)\
+LPTOKEN temp = ALLOC_TOKEN(TT_TYPEDEF, p);\
+parse_stmt(p,temp);\
+memcpy((path),temp->stmt,sizeof(TOKEN));\
+vmext_free(temp)\
+
 static BOOL parse_stmt(LPPARSER p, LPTOKEN block) {
     LPTOKEN token = NULL;
     parseClass_t* passClass = eat_keyword(p, function_keywords);
@@ -216,7 +224,7 @@ LPCSOURCEREF create_source_ref(LPPARSER p);
 LPTOKEN alloc_token(TOKENTYPE type, LPPARSER p) {
     LPTOKEN token = ALLOC(TOKEN);
     memset(token, 0, sizeof(TOKEN));
-    token->location = create_source_ref(p);
+    token->sref = create_source_ref(p);
     token->ttype = type;
     return token;
 }
@@ -239,7 +247,6 @@ LPTOKEN alloc_token_here(TOKENTYPE type, LPPARSER p,LPSTR pline){
     LPTOKEN token = alloc_token(type,p);
     token->pline = pline;
     token->sline = source_line(p->file, p->line);
-    ALLOCZ(token->loop, LOOP);
     return token;
 }
 
@@ -278,6 +285,14 @@ PARSER(parse_ts_function_params) {
         if(eat_token(p, ":")){
             entry->primary = read_identifier(p);
             assert(entry->primary);
+            if(eat_token(p, "[")){
+                if(eat_token(p, "]")){
+                    entry->flags|=TF_ARRAY;
+                }
+                else{
+                    PARSER_THROW("Syntax error in declaring function arguments");
+                }
+            }
         }
         else{
             entry->primary = "auto";
@@ -301,7 +316,7 @@ PARSER(parse_function_decl) {
         if(!eat_token(p, ")")){
             token->params = parse_ts_function_params(p);
             if(!eat_token(p, ")")){
-                PARSER_THROW("Expected ')' in declaring function args");
+                PARSER_THROW("Expected ')' in declaring function params");
             }
         }
     }
@@ -409,6 +424,9 @@ PARSER(keyword_typedef) {
 
 // _export(style,)
 PARSER(keyword_export) {
+    if(strstr(p->file,"vec3")){
+        fprintf(stderr, "1");
+    }
     LPTOKEN token = ALLOC_TOKEN(TT_EXPORT_ALL_ENTRIES, p);
     LPTOKEN exports = NULL;
     
@@ -504,31 +522,7 @@ PARSER(keyword_export) {
     }
 }
 PARSER(keyword_let) {
-    // const name=value
-    LPTOKEN token= ALLOC_TOKEN(TT_VARDECL, p);
-    token->pline = PARSERLINE();
-    token->sline = source_line(p->file, p->line);
-    token->flags |= TF_LET;
-    
-    token->secondary = read_identifier(p); //name
-    if (eat_token(p, "=")) {
-        token->stmt = parse_logical_expression(p);
-        if(token->stmt->ttype==TT_INTEGER){
-            token->primary = "integer";
-        }
-        else if(token->stmt->ttype==TT_REAL){
-            token->primary = "real";
-        }
-        else if(token->stmt->ttype==TT_STRING){
-            token->primary = "string";
-        }
-        else{
-            PARSER_THROW("Expected string|integer|real literal in const decl");
-        }
-        return token;
-    } else {
-        PARSER_THROW("expected native after constant");
-    }
+    return keyword_var(p);
 }
 
 PARSER(keyword_new) {
@@ -773,7 +767,7 @@ PARSER(read_single_identifier) {
     } 
     else if(eat_token(p, "[")) {
         left = ALLOC_TOKEN(TT_CALL, p);
-        left->primary = "Array_constructor";
+        left->primary = "Array_init";
         left->args = read_single_identifier(p);
     }
     else {
@@ -827,7 +821,7 @@ PARSER(parse_comparison_expression) {
 }
 int last_line  = 0;
 PARSER(parse_logical_expression) {
-    if(p->line>=659 && strstr(p->file,"quat")){
+    if(p->line>=10 && strstr(p->file,"vec3")){
         // printf("debuggerBreak at %d\n",p->line);
     }
     LPTOKEN left = parse_comparison_expression(p);
@@ -929,7 +923,7 @@ PARSER(statement_call) {
 }
 PARSER(statement_for) {
     LPTOKEN token = ALLOC_TOKEN(TT_FOR, p);
-    
+    ALLOCZ(token->loop, LOOP);
     // TypeScript style: for (initializer; condition; increment) { body }
     if (!eat_token(p, "(")) {
         PARSER_THROW("Expected '(' in for statement");
@@ -937,8 +931,12 @@ PARSER(statement_for) {
     
     // Parse initializer
     if (!eat_token(p, ";")) {
-        token->loop->init = parse_logical_expression(p);
-        if (!eat_token(p, ";")) {
+        parse_stmt(p,token); // temp use token->stmt
+        token->loop->init = token->stmt;
+        token->stmt = NULL;
+        // PARSE_STMT_TO(p, token->forloop->init);
+        
+        if (p->lastdilimiter!=';') {
             PARSER_THROW("Expected ';' in for statement");
         }
     }
@@ -953,7 +951,7 @@ PARSER(statement_for) {
     
     // Parse increment
     if (!eat_token(p, ")")) {
-        token->loop->stmt = parse_logical_expression(p); // auto closed `)`
+        token->loop->increment = parse_logical_expression(p); // auto closed `)`
     }
     
     // Parse body
@@ -1099,6 +1097,25 @@ PARSER(statement_loop) {
     return loop;
 }
 
+PARSER(statement_dowhile) {
+    LPTOKEN node = ALLOC_TOKEN(TT_DOWHILE,p);
+    if(eat_token(p, "{")){
+        while (!eat_token(p, "}")) {
+            parse_stmt(p, node);
+        }
+        if(eat_token(p, "while")){
+            node->whilestmt = parse_logical_expression(p);
+        }
+        else{
+            PARSER_THROW("expect WHILE in do-while stmt");
+        }
+    }
+    else{
+        PARSER_THROW("expect `{` in do-while stmt");
+    }
+    return node;
+}
+
 PARSER(statement_return) {
     LPTOKEN ret = ALLOC_TOKEN(TT_RETURN,p);
     parse_stmt(p,ret);
@@ -1122,6 +1139,7 @@ parseClass_t function_keywords[] = {
      { "new", keyword_new },
     { "let", keyword_let },
     { "for", statement_for },
+    { "do", statement_dowhile },
     { "const", keyword_const },
      { "while", statement_while },
      { "break", statement_break },
@@ -1151,7 +1169,6 @@ PARSER(keyword_function) {
             {
                 PARSER_THROW("Unclosing opened arg list");
             }
-            
         }
         if(token->next){
             token->flags|= TF_INPLACECALL;

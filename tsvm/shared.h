@@ -42,7 +42,7 @@ for (type *property = list, *next = list ? (list)->next : NULL; \
 property; \
 property = next, next = next ? next->next : NULL)
 
-#define ADD_TO_LIST(VAR, LIST) VAR->next = LIST; LIST = VAR;\
+#define ADD_TO_LIST(VAR, LIST) VAR->next = LIST; (LIST) = VAR;\
 
 #define FOR_EACH(type, property, array, num) \
 for (type *property = array; property - array < (long long)(num); property++)

@@ -13,7 +13,7 @@
 #define JASS_UNM "-"
 #define JASS_COMMA ","
 #define TYPE_AUTO "auto_type"
-#define VMFUNC(NAME,TYPE) { #NAME, NAME,TYPE,0,0,0,0,0}
+#define VMFUNC(NAME,TYPE) (JASSFUNC){ #NAME, NAME,TYPE,0,0,0,0,0}
 #define VMFUNC2(KEY,NAME,TYPE) { KEY, NAME,TYPE,0,0,0,0,0}
 #define INF_LOOP_PROTECTION 1024
 
@@ -23,10 +23,17 @@
 (VAR)=vmext_alloc(sizeof(type)); \
 memset((VAR), 0, sizeof(type))
 
+LPCJASSTYPE find_typebyid(LPCJASS j, JASSTYPEID id);
+LPCJASSTYPE find_type(LPCJASS j, LPCSTR name);
 #define JASS_ADD_STACK(j, VAR, TYPE) \
 LPJASSVAR VAR = &j->stack[j->num_stack++]; \
 memset(VAR, 0, sizeof(*VAR)); \
-VAR->type = &jass_types[TYPE];
+VAR->type = find_typebyid(j,TYPE);
+
+#define JASS_ADD_STACK2(j, VAR, TYPE) \
+LPJASSVAR VAR = &j->stack[j->num_stack++]; \
+memset(VAR, 0, sizeof(*VAR)); \
+VAR->type = find_type(j,TYPE);
 
 #define JASS_SET_VALUE(VAR, VALUE, SIZE) \
 jass_setnull(VAR); \
@@ -75,7 +82,6 @@ DWORD NAME(LPJASS j) { \
 
 KNOWN_AS(jass_pram, JASSPARAM);
 KNOWN_AS(jass_env, JASSENV);
-KNOWN_AS(jass_class, JASSCLASS);
 typedef struct {
     LPCSTR name;
     void (*func)(LPJASS, LPJASSENV, LPPARSER);
@@ -92,7 +98,6 @@ struct jass_var {
         DWORD returnstack;
         BOOL done;
     } env;
-    LPJASSARRAY _array;
 };
 
 struct jass_type {
@@ -160,7 +165,7 @@ struct jass_s {
     LPJASSDICT globals;
     LPJASSTYPE types;
     LPJASSFUNC functions;
-    LPCJASSFUNC lost;
+   
     JASSVAR stack[MAX_JASS_STACK];
     DWORD num_stack;
     LPJASSVAR stack_pointer;
@@ -169,6 +174,10 @@ struct jass_s {
     LPJASSMODULE this_module;
     LPJASSMODULE imports;
     LPJASSNS import_ns;
+
+    // global shared functions
+    LPCJASSFUNC __enosuchmethod;
+    LPCJASSFUNC __export;
 };
 
 void jass_register_Array(LPJASS j);

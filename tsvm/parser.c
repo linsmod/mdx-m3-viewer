@@ -111,6 +111,7 @@ LPCSTR parse_token(LPPARSER p) {
         word[0] = *(p->buffer++);
         word[1] = '\0';
         update_location(start, p);
+        p->lastdilimiter = word[0];
         return word;
     } else {
         size_t segmentLength = 0;

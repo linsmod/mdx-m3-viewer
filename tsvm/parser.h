@@ -18,6 +18,7 @@ struct parser_s {
     DWORD line;
     DWORD column;
     DWORD pflags;
+    char lastdilimiter;
 };
 
 LPCSTR parse_token(LPPARSER p);
