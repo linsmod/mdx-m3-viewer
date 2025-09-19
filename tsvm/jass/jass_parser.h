@@ -58,11 +58,11 @@ enum {
     TF_PUBLIC        = 1 << 12,
     TF_PRIVATE       = 1 << 13,
     TF_PROTECTED     = 1 << 14,
-    TF_PROTO_FIELD   = 1 << 15,
+    TF_SETEXPORT   = 1 << 15,
     TF_INPLACECALL    = 1 << 16, // 声明后就地调用 function abc(){}();
     TF_NEW = 1 << 17,
     TF_BRACEOPEN = 1 << 18,
-    TF_PUSHSTACK = 1<<19
+    TF_PUSHSTACK = 1<<19,
 };
 
 enum{
@@ -86,7 +86,6 @@ struct token {
         LPTOKEN init; // for (init;cond;..)
         LPTOKEN condition;
         LPTOKEN increment;
-        LPTOKEN stmt;
     }* loop;
     LPTOKEN whilestmt;
     LPCSOURCEREF sref;

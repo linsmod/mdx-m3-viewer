@@ -266,12 +266,18 @@ PARSER(parse_function_params) {
         return NULL;
     }
     LPTOKEN params = NULL;
+
     while (!params || eat_token(p, ",")) {
         LPTOKEN entry = ALLOC_TOKEN(TT_VARDECL, p);
         entry->pline = PARSERLINE();
         entry->sline = source_line(p->file, p->line);
         entry->primary = read_identifier(p);
-        entry->secondary = read_identifier(p);
+        if(!peek_token_eq(p,",")){
+            entry->secondary = read_identifier(p);
+        }
+        else{
+            entry->secondary = "<anonymous_param>";
+        }
         PUSH_BACK(TOKEN, entry, params);
     }
     return params;
@@ -427,8 +433,19 @@ PARSER(keyword_export) {
     if(strstr(p->file,"vec3")){
         fprintf(stderr, "1");
     }
+    
+    // layout: 
+    //  - token.stmt: declaring statments
+    //  - token.next: call __export(varname,optional alias)
     LPTOKEN token = ALLOC_TOKEN(TT_EXPORT_ALL_ENTRIES, p);
     LPTOKEN exports = NULL;
+
+    
+    LPTOKEN call = ALLOC_TOKEN(TT_CALL, p);
+    call->primary = "__export";
+    // args.primary: varname
+    // args.secondary: alias
+    PUSH_BACK(TOKEN, call, token);
     
     // export default expression
     // export default function foo() { }
@@ -440,19 +457,18 @@ PARSER(keyword_export) {
     }
     
     if(peek_token_eq(p, "const")){
-        token->flags |= TF_CONSTANT;
         if(!parse_stmt(p, token)){
             PARSER_THROW("Expected expression after 'export const'");
         }
-        token->primary = token->stmt->secondary;
+        call->secondary = token->stmt->secondary;
+        
         return token;
     }
     else if(peek_token_eq(p, "var")){
-        
         if(!parse_stmt(p, token)){
             PARSER_THROW("Expected expression after 'export var'");
         }
-        token->primary = token->stmt->secondary;
+        call->secondary = token->stmt->secondary;
         return token;
     }
     else if(peek_token_eq(p, "let")){
@@ -460,13 +476,13 @@ PARSER(keyword_export) {
         if(!parse_stmt(p, token)){
             PARSER_THROW("Expected expression after 'export let'");
         }
-        token->primary = token->stmt->secondary;
+        call->secondary = token->stmt->secondary;
         return token;
     }
     else if (eat_token(p, "function")) {
         token->flags |= TF_FUNCTION;
         token->stmt= keyword_function(p);
-        token->primary = token->stmt->primary;
+        call->secondary = token->stmt->primary;
         return token;
     }
     // export * as namespace from 'module'

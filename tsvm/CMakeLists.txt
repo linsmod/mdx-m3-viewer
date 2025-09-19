@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(tsvm C)
 
+
 # 编译选项
 set(CMAKE_C_FLAGS "-Wall -Wextra -Werror -std=c99")
 set(CMAKE_C_FLAGS_DEBUG "-O0 -g")
@@ -13,6 +14,15 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-parameter -Wno-unused-function")
 # 链接库
 set(CMAKE_EXE_LINKER_FLAGS "-lm")
 
+option(ENABLE_ASAN "Enable AddressSanitizer for memory error detection" ON)
+if(ENABLE_ASAN)
+    # 添加编译器标志
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -fsanitize=address -fno-omit-frame-pointer")
+    
+    # 添加链接器标志
+    set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} -fsanitize=address")
+endif()
+
 # 源文件
 set(SOURCES
     main.c
@@ -23,6 +33,7 @@ set(SOURCES
     jass/jass_parser.c
     jass/jass_array.c
     jass/jass_math.c
+    jass/zhash.c
 )
 
 # 头文件路径

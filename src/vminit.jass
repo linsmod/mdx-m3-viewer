@@ -10,3 +10,5 @@ endglobals
 type Array
 type Float32Array
 type Math
+
+constant native __export takes auto, string returns nothing

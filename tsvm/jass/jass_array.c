@@ -15,15 +15,12 @@ DWORD __Float32Array_constructor(LPJASS j) {
     return jass_pushhandle(j,array,"Float32Array");
 }
 
-static JASSFUNC arrayfuncs[] ={
-    VMFUNC2("Array",__Array_constructor, jasstype_handle),
-    VMFUNC2("Float32Array",__Float32Array_constructor, jasstype_handle),
+static NATIVE arrayfuncs[] ={
+    {"Array",__Array_constructor},
+    {"Float32Array",__Float32Array_constructor},
+    {0}
 };
 
-void jass_register_Array(LPJASS j){
-    FOR_EACH(JASSFUNC,func, arrayfuncs,sizeof(arrayfuncs)/sizeof(JASSFUNC)){
-        LPJASSFUNC copy = ALLOCZ(copy, JASSFUNC);
-        memcpy(copy, func, sizeof(JASSFUNC));
-        PUSH_BACK(JASSFUNC,copy, j->functions);
-    }
+void jass_register_Array(LPHASHTABLE table){
+    jass_register_natives(arrayfuncs,table);
 }

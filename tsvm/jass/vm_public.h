@@ -6,6 +6,7 @@
 
 #define MAX_GROUP_SIZE 256
 #define DEBUG_JASS 1
+#define DEBUG_JASS_STACK 1
 
 #define INDENT(depth) \
 FOR_LOOP(i, depth) fprintf(stdout," ");
@@ -15,6 +16,9 @@ FOR_LOOP(i, depth) fprintf(stdout," ");
 
 #define API_ALLOC(TYPE, NAME) TYPE *NAME = jass_newhandle(j, sizeof(TYPE), #NAME);
 
+KNOWN_AS(ZHashTable, HASHTABLE);
+KNOWN_AS(ZHashEntry, HASHENTRY);
+KNOWN_AS(cfunction, NATIVE);
 KNOWN_AS(jass_function, JASSFUNC);
 KNOWN_AS(jass_type, JASSTYPE);
 KNOWN_AS(jass_class, JASSCLASS);
@@ -104,6 +108,7 @@ struct jass_module {
     BOOL evaluating;       // 是否正在执行（防循环依赖死锁）
     LPJASSDICT exports;    // 显式导出的符号表
     struct jass_module *next;
+    LPCSTR loader;
 };
 struct jass_namespace{
     struct jass_namespace* next;
@@ -111,6 +116,7 @@ struct jass_namespace{
     LPJASSMODULE module;
 };
 LPJASS jass_newstate(LPJASSMODULE module);
+void jass_register_natives(LPNATIVE cfuncs,LPHASHTABLE table);
 LPJASSMODULE jass_loadmodule(LPJASS loader, LPCSTR module_name);
 void jass_setnull(LPJASSVAR var);
 void jass_close(LPJASS);

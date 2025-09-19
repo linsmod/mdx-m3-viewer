@@ -1,6 +1,7 @@
 #include "shared.h"
 #include <vm_public.h>
 #include <parser.h>
+#include "zhash.h"
 #define F_END { NULL }
 #define MAX_JASS_STACK 256
 #define JASS_DELIM ":,;()[]+-/*=!{}"
@@ -24,6 +25,7 @@
 memset((VAR), 0, sizeof(type))
 
 LPCJASSTYPE find_typebyid(LPCJASS j, JASSTYPEID id);
+
 LPCJASSTYPE find_type(LPCJASS j, LPCSTR name);
 #define JASS_ADD_STACK(j, VAR, TYPE) \
 LPJASSVAR VAR = &j->stack[j->num_stack++]; \
@@ -117,6 +119,10 @@ struct jass_pram {
     LPCJASSTYPE type;
     LPCSTR name;
 };
+struct cfunction{
+    LPSTR name;
+    DWORD (*f)(LPJASS j);
+};
 
 struct jass_function {
     // shared fields
@@ -165,6 +171,8 @@ struct jass_s {
     LPJASSDICT globals;
     LPJASSTYPE types;
     LPJASSFUNC functions;
+    LPHASHTABLE natives;
+    LPJASSDICT imports;
    
     JASSVAR stack[MAX_JASS_STACK];
     DWORD num_stack;
@@ -172,13 +180,13 @@ struct jass_s {
     JASSCONTEXT context;
     LPCTOKEN current_token;
     LPJASSMODULE this_module;
-    LPJASSMODULE imports;
+    LPJASSMODULE depends;
     LPJASSNS import_ns;
 
     // global shared functions
-    LPCJASSFUNC __enosuchmethod;
-    LPCJASSFUNC __export;
+    LPCJASSFUNC fn_enosuch;
+    LPCJASSFUNC fn_export;
 };
 
-void jass_register_Array(LPJASS j);
-void jass_register_Math(LPJASS j);
+void jass_register_Array(LPHASHTABLE table);
+void jass_register_Math(LPHASHTABLE table);
