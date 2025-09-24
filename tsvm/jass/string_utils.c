@@ -9,6 +9,9 @@
 
 #include "string_utils.h"
 
+#include <string.h>
+
+
 // ========================
 // 1. 创建 String（从 C 字符串）
 // 类似 new String("hello")

@@ -15,6 +15,7 @@ typedef enum {
     TT_IDENTIFIER,
     TT_ARRAYACCESS,
     TT_CALL,
+    TT_CALLONSTACK,
     TT_INTEGER,
     TT_REAL,
     TT_STRING,
@@ -57,12 +58,13 @@ enum {
     TF_AUTOTYPE      = 1 << 11,
     TF_PUBLIC        = 1 << 12,
     TF_PRIVATE       = 1 << 13,
-    TF_PROTECTED     = 1 << 14,
+    TF_SETVALUE     = 1 << 14, // token.stmt is used to init a var
     TF_SETEXPORT   = 1 << 15,
-    TF_INPLACECALL    = 1 << 16, // 声明后就地调用 function abc(){}();
+    TF_CALLONSTACK    = 1 << 16, // 声明后就地调用 function abc(){}();
     TF_NEW = 1 << 17,
     TF_BRACEOPEN = 1 << 18,
     TF_PUSHSTACK = 1<<19,
+    TF_EXPORTDEFAULT = 1<<20,
 };
 
 enum{

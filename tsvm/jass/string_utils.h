@@ -34,6 +34,8 @@ typedef struct String {
     DWORD strlen;    // 字符串长度（不包含末尾 \0）
 } String;
 
+char *strndup(const char *s, size_t n);
+
 // ========================
 // 构造与析构
 // ========================

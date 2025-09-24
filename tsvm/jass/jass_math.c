@@ -25,12 +25,12 @@ DWORD __Math_hypot(LPJASS j) {
 }
 
 static NATIVE libmathfuncs[] ={
-    {"Math",__Math_constructor},
     {"Math.random",__Math_random},
     {"Math.hypot",__Math_hypot},
     {0},
 };
 
-void jass_register_Math(LPHASHTABLE table){
+void jass_register_Math(LPHASHTABLE table,LPHASHTABLE types){
+    jass_register_type("Math",NULL, types);
     jass_register_natives(libmathfuncs, table);
 }

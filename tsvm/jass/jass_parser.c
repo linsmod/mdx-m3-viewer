@@ -236,9 +236,9 @@ LPSTR source_line(LPCSTR file, int line) {
     if (!buffer) return NULL;
 
     if (file) {
-        sprintf(buffer, "@%s:%d", file, line);
+        sprintf(buffer, "at %s:%d", file, line);
     } else {
-        sprintf(buffer, "@?:%d", line);
+        sprintf(buffer, "at ?:%d", line);
     }
 
     return buffer;
@@ -271,12 +271,13 @@ PARSER(parse_function_params) {
         LPTOKEN entry = ALLOC_TOKEN(TT_VARDECL, p);
         entry->pline = PARSERLINE();
         entry->sline = source_line(p->file, p->line);
-        entry->primary = read_identifier(p);
-        if(!peek_token_eq(p,",")){
-            entry->secondary = read_identifier(p);
+        entry->primary = read_identifier(p); // param type
+        if(peek_token_eq(p,"returns")){
+            break;
         }
-        else{
-            entry->secondary = "<anonymous_param>";
+        entry->secondary = read_identifier(p); //param name can be optional
+        if(!entry->secondary){
+            entry->secondary = "<anonymous>";
         }
         PUSH_BACK(TOKEN, entry, params);
     }
@@ -308,17 +309,15 @@ PARSER(parse_ts_function_params) {
     return params;
 }
 
-PARSER(parse_function_decl) {
+PARSER(parse_ts_function_decl) {
     LPTOKEN token = ALLOC_TOKEN(TT_FUNCTION, p);
     token->primary = read_identifier(p);
     if(!token->primary){
         // anonymouse function
+        token->flags = TF_ANONYMOUS;
         token->primary = "<anonymous>";
     }
-    if (eat_token(p, "takes")) { // jass
-        token->params = parse_function_params(p);
-    }
-    else if(eat_token(p, "(")){ // typescript args
+    if(eat_token(p, "(")){ // typescript args
         if(!eat_token(p, ")")){
             token->params = parse_ts_function_params(p);
             if(!eat_token(p, ")")){
@@ -326,22 +325,38 @@ PARSER(parse_function_decl) {
             }
         }
     }
-    if (eat_token(p, "returns")) { // jass
-        token->secondary = read_identifier(p);
+    else{
+        PARSER_THROW("Expect `(`");
     }
-    else if (eat_token(p, ":")) { // typescript return type
+    if (eat_token(p, ":")) { // typescript return type
         token->secondary = read_identifier(p);
         assert(token->secondary);
     }
     else{
         token->secondary = "auto";
     }
-
+    return token;
+}
+PARSER(parse_function_decl) {
+    LPTOKEN token = alloc_token(TT_FUNCTION,p);
+    token->primary = read_identifier(p);
+    if (eat_token(p, "takes")) {
+        token->params = parse_function_params(p);
+    }
+    else{
+        PARSER_THROW("Expect TAKES");
+    }
+    if (eat_token(p, "returns")) {
+        token->secondary = read_identifier(p);
+    }
+    else{
+        PARSER_THROW("Expect RETURNS");
+    }
     return token;
 }
 
 PARSER(keyword_native) {
-    LPTOKEN token = parse_function_decl(p);
+    LPTOKEN token = (p->pflags & PF_JASS) ? parse_function_decl(p):parse_ts_function_decl(p);
     token->flags |= TF_NATIVE;
     return token;
 }
@@ -427,94 +442,122 @@ PARSER(keyword_typedef) {
     return token;
     assert(false);
 }
+typedef struct export_call{
+    LPTOKEN head;
+    LPTOKEN call;
+    LPTOKEN arg0;
+    LPTOKEN arg1;
+    LPTOKEN arg2;
+    struct export_call* next;
+}EXPORT_CALL;
+
+static void setmoduleuri(LPPARSER p,LPTOKEN head,LPSTR uri_str){
+    LPTOKEN declFrom = ALLOC_TOKEN(TT_VARDECL, p);
+    declFrom->flags |= TF_CONSTANT;
+    declFrom->primary = "string";
+    declFrom->secondary = "_module_uri";
+    PUSH_BACK(TOKEN, declFrom, head->stmt);
+
+    LPTOKEN uri = ALLOC_TOKEN(TT_STRING, p);
+    uri->primary = uri_str ? uri_str:"<this_module>"; // defaults to this_module
+    declFrom->stmt  = uri;
+}
+
+static EXPORT_CALL* build_export_call(LPPARSER p,LPTOKEN head){
+    // layout: 
+    //  - head.stmt: declaring statments to stack
+    //  - head.next: call __export(uri,varname,alias)
+    //  - head.next.next: call __export(uri,varname,alias)
+    //  - head.next.next.next... call __export(uri varname,alias)
+
+    EXPORT_CALL* ec = (EXPORT_CALL*)malloc(sizeof(EXPORT_CALL)); // 👈 堆分配
+    if (!ec) PARSER_THROW("Out of memory");
+    // the call
+    LPTOKEN call = ALLOC_TOKEN(TT_CALL, p);
+    call->primary = "__export";
+    PUSH_BACK(TOKEN, call, head);
+
+    // arg0: uri 
+    LPTOKEN arg0 = ALLOC_TOKEN(TT_IDENTIFIER, p);
+    arg0->primary = "_module_uri";
+    arg0->secondary ="\0";
+    PUSH_BACK(TOKEN, arg0, call->args);
+    // arg1: var
+    LPTOKEN arg1 = ALLOC_TOKEN(TT_IDENTIFIER, p);
+    arg1->primary ="\0";
+    arg1->secondary ="\0";
+    PUSH_BACK(TOKEN, arg1, call->args);
+    // arg2 entryname
+    LPTOKEN arg2 = ALLOC_TOKEN(TT_STRING, p);
+    arg2->primary ="\0";
+    PUSH_BACK(TOKEN, arg2, call->args);
+    *ec =  MAKE(EXPORT_CALL, head,call,arg0,arg1,arg2,NULL);
+    return ec;
+}
 
 // _export(style,)
 PARSER(keyword_export) {
-    if(strstr(p->file,"vec3")){
-        fprintf(stderr, "1");
-    }
-    
-    // layout: 
-    //  - token.stmt: declaring statments
-    //  - token.next: call __export(varname,optional alias)
-    LPTOKEN token = ALLOC_TOKEN(TT_EXPORT_ALL_ENTRIES, p);
-    LPTOKEN exports = NULL;
 
-    
-    LPTOKEN call = ALLOC_TOKEN(TT_CALL, p);
-    call->primary = "__export";
-    // args.primary: varname
-    // args.secondary: alias
-    PUSH_BACK(TOKEN, call, token);
+    LPTOKEN head = ALLOC_TOKEN(TT_EXPORT_ADD_ENTRY, p);
+
+    EXPORT_CALL* layout = build_export_call(p,head);
     
     // export default expression
     // export default function foo() { }
     // export default class A { }
     // export default 42;
 
-    if(!eat_token(p, "default")){
-        token->ttype = TT_EXPORT_ADD_ENTRY;
+    if(eat_token(p, "default")){
+        head->flags = TF_EXPORTDEFAULT;
+        layout->arg1->primary = "<module>.default_export";
     }
     
-    if(peek_token_eq(p, "const")){
-        if(!parse_stmt(p, token)){
-            PARSER_THROW("Expected expression after 'export const'");
+    LPCSTR peek = peek_token(p);
+    if(!strcmp(peek, "const") || !strcmp(peek, "var")||!strcmp(peek, "let")){
+        if(!parse_stmt(p, head)){
+            PARSER_THROW("Invalid export syntax");
         }
-        call->secondary = token->stmt->secondary;
-        
-        return token;
-    }
-    else if(peek_token_eq(p, "var")){
-        if(!parse_stmt(p, token)){
-            PARSER_THROW("Expected expression after 'export var'");
-        }
-        call->secondary = token->stmt->secondary;
-        return token;
-    }
-    else if(peek_token_eq(p, "let")){
-        token->flags |= TF_LET;
-        if(!parse_stmt(p, token)){
-            PARSER_THROW("Expected expression after 'export let'");
-        }
-        call->secondary = token->stmt->secondary;
-        return token;
+        layout->arg1->primary = layout->head->stmt->secondary; // varname
+        assert(layout->arg1->primary);
+        layout->arg2->primary= strdup(layout->arg1->primary);// exportname
+        setmoduleuri(p,head,NULL);
+        return head;
     }
     else if (eat_token(p, "function")) {
-        token->flags |= TF_FUNCTION;
-        token->stmt= keyword_function(p);
-        call->secondary = token->stmt->primary;
-        return token;
+        LPTOKEN fn =  keyword_function(p);
+        LPTOKEN var = ALLOC_TOKEN(TT_VARDECL, p);
+        var->primary = fn->primary;
+        var->stmt = fn;
+        var->flags |=TF_SETVALUE;
+
+        PUSH_BACK(TOKEN, fn, head->stmt);
+        layout->arg1->primary = fn->primary; // functioname
+        assert(layout->arg1->primary);
+        layout->arg2->primary= strdup(layout->arg1->primary);// exportname
+        setmoduleuri(p,head,NULL);
+        return head;
     }
     // export * as namespace from 'module'
     else if (eat_token(p, "*")) {
-        token->ttype = TT_EXPORT_ALL_ENTRIES;
-        if (eat_token(p, "as")) {
-            token->secondary = read_identifier(p);  // namespace
-            if (!eat_token(p, "from")) {
-                PARSER_THROW("FROM expected after export * as namespace");
-            }
-            token->primary = read_string_literal(p);
-            return token;
-        } else {
-            PARSER_THROW("AS expected after export *");
-        }
+        assert(0);
     }
 
-    // export { name1, name2 } from 'module'
+    // export { name1, name2 } from 'xxx_module'
     // export { name1, name2 };
     else if (eat_token(p, "{")) {
-        token->ttype = TT_EXPORT_ENTRY_LIST;
+        EXPORT_CALL* target = layout;
         // 解析导出列表
         while (!eat_token(p, "}")) {
-            LPTOKEN entry = ALLOC_TOKEN(TT_IDENTIFIER, p);
-            entry->primary = read_identifier(p);
-            PUSH_BACK(TOKEN, entry, exports);
-
+            target->arg1->primary= read_identifier(p);// varname
+            assert(target->arg1->primary);
+            target->arg2->primary= strdup(target->arg1->primary);// exportname
             // export { name1, name2 as xxx } ...
             if (eat_token(p, "as")) {
-                entry->secondary = read_identifier(p);
+                target->arg2->primary= read_identifier(p);
             }
             if (eat_token(p, ",")) {
+                target->next = build_export_call(p,head);
+                target = target->next;
                 continue;
             }
             else if(eat_token(p, "}")){
@@ -524,14 +567,14 @@ PARSER(keyword_export) {
                 PARSER_THROW("Unexpected '%s' in export list",peek_token(p));
             }
         }
-        token->args = exports;
+        
         if (eat_token(p, "from")) {
-            token->primary = read_string_literal(p);
+            setmoduleuri(p,head,read_string_literal(p));
         }
         else{
-            token->primary = "<this_module>";
+            setmoduleuri(p,head, "<this_module>");
         }
-        return token;
+        return layout->head;
     }
     else {
          PARSER_THROW("Unexpected '%s' in export list",peek_token(p));
@@ -618,30 +661,28 @@ PARSER(keyword_var) {
 PARSER(keyword_const) {
     // const name=value
     LPTOKEN token= ALLOC_TOKEN(TT_VARDECL, p);
-    token->pline = PARSERLINE();
-    token->sline = source_line(p->file, p->line);
     token->flags |= TF_CONSTANT;
-    
+    token->primary = "auto";
     token->secondary = read_identifier(p); //name
     if (eat_token(p, "=")) {
         token->stmt = parse_logical_expression(p);
-        if(token->stmt->ttype==TT_INTEGER){
-            token->primary = "integer";
-        }
-        else if(token->stmt->ttype==TT_REAL){
-            token->primary = "real";
-        }
-        else if(token->stmt->ttype==TT_STRING){
-            token->primary = "string";
-        }
-        else if(token->stmt->ttype==TT_CALL){
-            token->primary = token->stmt->secondary; // return type
-        }
-        if(!token->primary){
-            token->flags |= TF_AUTOTYPE;
-            token->primary = "auto";
-            // PARSER_THROW("Undetermined type in const decl");
-        }
+        // if(token->stmt->ttype==TT_INTEGER){
+        //     token->primary = "integer";
+        // }
+        // else if(token->stmt->ttype==TT_REAL){
+        //     token->primary = "real";
+        // }
+        // else if(token->stmt->ttype==TT_STRING){
+        //     token->primary = "string";
+        // }
+        // else if(token->stmt->ttype==TT_CALL){
+        //     token->primary = token->stmt->secondary; // return type
+        // }
+        // if(!token->primary){
+        //     token->flags |= TF_AUTOTYPE;
+        //     token->primary = "auto";
+        //     // PARSER_THROW("Undetermined type in const decl");
+        // }
         return token;
     } else {
         PARSER_THROW("expected native after constant");
@@ -855,16 +896,16 @@ PARSER(parse_logical_expression) {
     if (eat_token(p, "?")) {
         LPTOKEN cond_expr = ALLOC_TOKEN(TT_CALL, p);
         cond_expr->primary = "__cond";
-        ADD_TO_LIST(left, cond_expr->args); // condition
+        PUSH_BACK(TOKEN,left, cond_expr->args); // condition
         LPTOKEN true_expr = parse_logical_expression(p);
-        ADD_TO_LIST(true_expr, cond_expr->args); // true expr
+        PUSH_BACK(TOKEN,true_expr, cond_expr->args); // true expr
         
         if (!eat_token(p, ":")) {
             FREE(cond_expr);
             PARSER_THROW("Expected ':' in ternary expression");
         }
         LPTOKEN false_expr= parse_logical_expression(p);
-        ADD_TO_LIST(false_expr, cond_expr->args); // false expr
+        PUSH_BACK(TOKEN,false_expr, cond_expr->args); // false expr
         return cond_expr;
     }
     if (eat_token(p, ",")) {
@@ -896,6 +937,7 @@ PARSER(keyword_globals) {
             PARSER_THROW("Expected an identifier or endglobals");
         }
         if (eat_token(p, "=")) {
+            token->flags |= TF_SETVALUE;
             token->stmt = parse_logical_expression(p);
         }
         PUSH_BACK(TOKEN, token, globals);
@@ -920,6 +962,7 @@ PARSER(statement_set) {
 
     }
     if (eat_token(p, "=")) { // assignment
+        token->flags|=TF_SETVALUE;
         // typescript
         if (eat_token(p, "function")) {
             token->flags |= TF_FUNCTION;
@@ -998,6 +1041,7 @@ PARSER(statement_local) {
     }
     token->secondary = read_identifier(p);
     if (eat_token(p, "=")) {
+        token->flags |= TF_SETVALUE;
         token->stmt = parse_logical_expression(p);
     }
     return token;
@@ -1164,8 +1208,9 @@ parseClass_t function_keywords[] = {
 };
 
 PARSER(keyword_function) {
-    LPTOKEN token = parse_function_decl(p);
+    LPTOKEN token;
     if(p->pflags & PF_JS){
+        token = parse_ts_function_decl(p);
         if(!eat_token(p, "{")){
             PARSER_THROW("Expect `{` to start a function body");
         }
@@ -1179,18 +1224,17 @@ PARSER(keyword_function) {
             target->next = ALLOC_TOKEN(TT_CALL, p);
             target = target->next;
             
-            target->primary = "<f_from_return>";
+            target->flags |= TF_CALLONSTACK;
+            target->primary = "<f_onstack>";
             target->args = read_single_identifier(p);
             if(!eat_token(p, ")"))
             {
                 PARSER_THROW("Unclosing opened arg list");
             }
         }
-        if(token->next){
-            token->flags|= TF_INPLACECALL;
-        }
     }
     else{
+        token = parse_function_decl(p);
         while (!eat_token(p, "endfunction")) {
             if (!parse_stmt(p, token)) {
                 FREE(token);

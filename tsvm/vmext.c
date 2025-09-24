@@ -4,6 +4,7 @@
 #include <string.h>
 #include "jass/vm_public.h"
 #include "jass/vm_ext.h"
+#include "jass/vm_priv.h"
 #include "parser.h"
 #include "shared.h"
 #include <stdio.h>

@@ -1,3 +1,4 @@
+#include "jass_parser.h"
 #include "shared.h"
 #include <vm_public.h>
 #include <parser.h>
@@ -18,7 +19,7 @@
 #define VMFUNC2(KEY,NAME,TYPE) { KEY, NAME,TYPE,0,0,0,0,0}
 #define INF_LOOP_PROTECTION 1024
 
-#define assert_type(var, type) assert(jass_checktype(var, type))
+#define assert_type(var, type) assert(jass_checkvartype(var, type))
 
 #define JASSALLOC(VAR,type) \
 (VAR)=vmext_alloc(sizeof(type)); \
@@ -91,7 +92,11 @@ typedef struct {
 
 struct jass_var {
     LPCJASSTYPE type;
-    HANDLE value;
+    union{
+        HANDLE value;
+        LPJASSFUNC _fn;
+        LPCSTR _str;
+    };
     DWORD *refcount;
     BOOL constant;
     BOOL array;
@@ -152,11 +157,11 @@ typedef enum {
     ImportedVars,
 }varplace;
 
+
 struct jass_dict {
     LPJASSDICT next;
     LPCSTR key;
     JASSVAR value;
-    varplace declScope;
 };
 
 // for namespaced vars
@@ -167,26 +172,42 @@ struct jass_nsvar{
     JASSVAR value;
 };
 
+struct jass_object{
+    LPJASSDICT props;
+    LPHASHTABLE ht; // LPJASSVAR
+    LPCTOKEN code; // object is defined by which code 
+    LPJASSOBJECT next;
+};
+
 struct jass_s {
-    LPJASSDICT globals;
-    LPJASSTYPE types;
-    LPJASSFUNC functions;
-    LPHASHTABLE natives;
-    LPJASSDICT imports;
-   
+    // These are builtin c functions, registered into `jass_s` but not visible from scripts scope
+    // To export a native function into scripts scope, 
+    // use `constant native xxxx takes xxx,... returns xxx` in vminit.jass 
+    LPHASHTABLE g_shared_natives; 
+
+    // global shared types
+    LPHASHTABLE g_shared_types; 
     JASSVAR stack[MAX_JASS_STACK];
     DWORD num_stack;
+    LPJASSVAR base_sp;
+    LPJASSVAR caller_sp;
     LPJASSVAR stack_pointer;
     JASSCONTEXT context;
     LPCTOKEN current_token;
+    LPJASSMODULE entrymodule;
     LPJASSMODULE this_module;
-    LPJASSMODULE depends;
+    LPLISTNODE depends;
     LPJASSNS import_ns;
+
+    // for inplace call stack check
+    LPCJASSFUNC f_onstack;
+
 
     // global shared functions
     LPCJASSFUNC fn_enosuch;
     LPCJASSFUNC fn_export;
+    LPCJASSFUNC fn_evalprog;
 };
 
-void jass_register_Array(LPHASHTABLE table);
-void jass_register_Math(LPHASHTABLE table);
+void jass_register_Array(LPHASHTABLE table,LPHASHTABLE types);
+void jass_register_Math(LPHASHTABLE table,LPHASHTABLE types);

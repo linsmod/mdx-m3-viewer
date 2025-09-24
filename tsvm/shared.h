@@ -28,6 +28,9 @@ memset((VAR), 0, sizeof(type))
 #define FOR_LOOP(property, max) \
 for (DWORD property = 0, end = max; property < end; ++property)
 
+#define FOR_LOOP_FROM(property,start, max) \
+for (DWORD property = start, end = max; property < end; ++property)
+
 #define HASH_STR(str, hash)            \
     do {                               \
         const char *s = (str);         \

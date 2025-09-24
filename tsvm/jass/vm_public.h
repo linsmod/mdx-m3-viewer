@@ -6,7 +6,7 @@
 
 #define MAX_GROUP_SIZE 256
 #define DEBUG_JASS 1
-#define DEBUG_JASS_STACK 1
+// #define DEBUG_JASS_STACK
 
 #define INDENT(depth) \
 FOR_LOOP(i, depth) fprintf(stdout," ");
@@ -30,7 +30,9 @@ KNOWN_AS(gtrigger_s, TRIGGER);
 KNOWN_AS(gtriggercondition_s, TRIGGERCONDITION);
 KNOWN_AS(gtriggeraction_s, TRIGGERACTION);
 KNOWN_AS(jass_array, JASSARRAY);
+KNOWN_AS(jass_object, JASSOBJECT);
 KNOWN_AS(jass_dict, JASSDICT);
+KNOWN_AS(list_node, LISTNODE);
 KNOWN_AS(jass_module, JASSMODULE);
 KNOWN_AS(jass_namespace, JASSNS);
 KNOWN_AS(jass_nsvar, JASSDICTNS); 
@@ -69,14 +71,15 @@ typedef DWORD (*CFUNC)(LPJASS);
 // must sync with jass_types
 typedef enum {
     jasstype_handle,
+    jasstype_object,
     jasstype_nothing,
     jasstype_integer,
     jasstype_real,
     jasstype_string,
     jasstype_boolean,
     jasstype_function,
+    jasstype_typecode,
     jasstype_auto,
-    jasstype_type,
 } JASSTYPEID;
 
 typedef enum{
@@ -103,12 +106,30 @@ struct jass_context {
 struct jass_module {
     LPCSTR name;           // 模块名（如 "utils.jass"）
     LPCSTR file;
-    LPJASS state;          // 该模块的独立运行时状态（含 globals、functions）
     BOOL loaded;           // 是否已加载
     BOOL evaluating;       // 是否正在执行（防循环依赖死锁）
     LPJASSDICT exports;    // 显式导出的符号表
     struct jass_module *next;
     LPCSTR loader;
+
+    LPJASSDICT globals;
+    LPJASSTYPE types;
+
+    // Note: registered natives should only access from c.
+    // To export a native function into scripts scope, 
+    // use `constant native xxxx takes xxx,... returns xxx` in vminit.jass 
+
+    // Explict declared functions in type of code (definit by ts or jass) and native( declared by vminit.jass)
+    LPJASSFUNC functions; 
+
+
+
+
+    LPJASSDICT imports;
+};
+struct list_node{
+    void* p;
+    struct list_node* next;
 };
 struct jass_namespace{
     struct jass_namespace* next;
@@ -117,6 +138,7 @@ struct jass_namespace{
 };
 LPJASS jass_newstate(LPJASSMODULE module);
 void jass_register_natives(LPNATIVE cfuncs,LPHASHTABLE table);
+void jass_register_type(LPSTR typename,LPSTR constructorname, LPHASHTABLE table);
 LPJASSMODULE jass_loadmodule(LPJASS loader, LPCSTR module_name);
 void jass_setnull(LPJASSVAR var);
 void jass_close(LPJASS);
@@ -128,7 +150,6 @@ LONG jass_checkinteger(LPJASS j, int index);
 FLOAT jass_checknumber(LPJASS j, int index);
 BOOL jass_checkboolean(LPJASS j, int index);
 LPCSTR jass_checkstring(LPJASS j, int index);
-LPJASSTYPE jass_checktypeof(LPJASS j, int index) ;
 LPCJASSFUNC jass_checkcode(LPJASS j, int index);
 HANDLE jass_checkhandle(LPJASS j, int index, LPCSTR type);
 BOOL jass_toboolean(LPJASS j, int index);
@@ -138,8 +159,9 @@ JASSTYPEID jass_gettype(LPJASS j, int index);
 DWORD jass_pushnull(LPJASS j);
 DWORD jass_pushinteger(LPJASS j, LONG value);
 DWORD jass_pushhandle(LPJASS j, HANDLE value, LPCSTR type);
+DWORD jass_pushobject(LPJASS j, LPJASSOBJECT value);
 DWORD jass_pusharray(LPJASS j, HANDLE value, LPCSTR type);
-DWORD jass_pushtype(LPJASS j, LPCJASSTYPE value);
+DWORD jass_pushtype(LPJASS j, LPCSTR value);
 DWORD jass_pushlighthandle(LPJASS j, HANDLE value, LPCSTR type);
 DWORD jass_pushnumber(LPJASS j, FLOAT value);
 DWORD jass_pushboolean(LPJASS j, BOOL value);

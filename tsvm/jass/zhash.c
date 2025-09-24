@@ -64,6 +64,10 @@ void zhash_set(struct ZHashTable *hash_table, char *key, void *val)
   }
 
   entry = zcreate_entry(key, val);
+  if (!entry) {
+    // 内存分配失败
+    return;
+  }
 
   entry->next = hash_table->entries[hash];
   hash_table->entries[hash] = entry;
@@ -81,12 +85,19 @@ void *zhash_get(struct ZHashTable *hash_table, char *key)
   size_t hash;
   struct ZHashEntry *entry;
 
+  if (!hash_table || !key) return NULL;
+  
   hash = zgenerate_hash(hash_table, key);
   entry = hash_table->entries[hash];
 
-  while (entry && strcmp(key, entry->key) != 0) entry = entry->next;
+  while (entry) {
+    if (strcmp(key, entry->key) == 0) {
+      return entry->val;
+    }
+    entry = entry->next;
+  }
 
-  return entry ? entry->val : NULL;
+  return NULL;
 }
 
 void *zhash_delete(struct ZHashTable *hash_table, char *key)
@@ -162,11 +173,18 @@ static struct ZHashEntry *zcreate_entry(char *key, void *val)
   char *key_cpy;
 
   key_cpy = (char *) zmalloc((strlen(key) + 1) * sizeof(char));
+  if (!key_cpy) return NULL;
+  
   entry = (struct ZHashEntry *) zmalloc(sizeof(struct ZHashEntry));
+  if (!entry) {
+    zfree(key_cpy);
+    return NULL;
+  }
 
   strcpy(key_cpy, key);
   entry->key = key_cpy;
   entry->val = val;
+  entry->next = NULL;
 
   return entry;
 }

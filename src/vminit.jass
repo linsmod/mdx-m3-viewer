@@ -7,8 +7,31 @@ globals
 
 endglobals
 
+constant native __export takes auto, string returns nothing
+constant native __typeofx takes auto returns string
+
+constant native __add takes number,number returns number
+constant native __sub takes number,number returns number
+constant native __mul takes number,number returns number
+constant native __div takes number,number returns number
+constant native __ne takes auto,auto returns boolean
+constant native __eq takes auto,auto returns boolean
+constant native __ge takes number,number returns boolean
+constant native __le takes number,number returns boolean
+constant native __gt takes number,number returns boolean
+constant native __lt takes number,number returns boolean
+constant native __and takes auto,auto returns boolean
+constant native __or takes auto,auto returns boolean
+constant native __unm takes number returns number
+constant native __not takes auto returns boolean
+constant native __cond takes boolean,auto,auto returns auto
+
 type Array
 type Float32Array
+type Object
+constant native Array.constructor takes integer size returns Array
+constant native Float32Array.constructor takes integer size returns Array
+constant native Object.constructor takes nothing returns Object
 type Math
 
-constant native __export takes auto, string returns nothing
+
