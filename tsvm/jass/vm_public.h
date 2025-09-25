@@ -113,7 +113,6 @@ struct jass_module {
     LPCSTR loader;
 
     LPJASSDICT globals;
-    LPJASSTYPE types;
 
     // Note: registered natives should only access from c.
     // To export a native function into scripts scope, 

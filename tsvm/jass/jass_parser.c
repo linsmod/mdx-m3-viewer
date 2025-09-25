@@ -451,17 +451,6 @@ typedef struct export_call{
     struct export_call* next;
 }EXPORT_CALL;
 
-static void setmoduleuri(LPPARSER p,LPTOKEN head,LPSTR uri_str){
-    LPTOKEN declFrom = ALLOC_TOKEN(TT_VARDECL, p);
-    declFrom->flags |= TF_CONSTANT;
-    declFrom->primary = "string";
-    declFrom->secondary = "_module_uri";
-    PUSH_BACK(TOKEN, declFrom, head->stmt);
-
-    LPTOKEN uri = ALLOC_TOKEN(TT_STRING, p);
-    uri->primary = uri_str ? uri_str:"<this_module>"; // defaults to this_module
-    declFrom->stmt  = uri;
-}
 
 static EXPORT_CALL* build_export_call(LPPARSER p,LPTOKEN head){
     // layout: 
@@ -477,10 +466,9 @@ static EXPORT_CALL* build_export_call(LPPARSER p,LPTOKEN head){
     call->primary = "__export";
     PUSH_BACK(TOKEN, call, head);
 
-    // arg0: uri 
-    LPTOKEN arg0 = ALLOC_TOKEN(TT_IDENTIFIER, p);
-    arg0->primary = "_module_uri";
-    arg0->secondary ="\0";
+    // arg0: module uri 
+    LPTOKEN arg0 = ALLOC_TOKEN(TT_STRING, p);
+    arg0->primary = "<this_module>";
     PUSH_BACK(TOKEN, arg0, call->args);
     // arg1: var
     LPTOKEN arg1 = ALLOC_TOKEN(TT_IDENTIFIER, p);
@@ -520,7 +508,6 @@ PARSER(keyword_export) {
         layout->arg1->primary = layout->head->stmt->secondary; // varname
         assert(layout->arg1->primary);
         layout->arg2->primary= strdup(layout->arg1->primary);// exportname
-        setmoduleuri(p,head,NULL);
         return head;
     }
     else if (eat_token(p, "function")) {
@@ -534,7 +521,6 @@ PARSER(keyword_export) {
         layout->arg1->primary = fn->primary; // functioname
         assert(layout->arg1->primary);
         layout->arg2->primary= strdup(layout->arg1->primary);// exportname
-        setmoduleuri(p,head,NULL);
         return head;
     }
     // export * as namespace from 'module'
@@ -567,12 +553,12 @@ PARSER(keyword_export) {
                 PARSER_THROW("Unexpected '%s' in export list",peek_token(p));
             }
         }
-        
+        LPSTR moduleuri = "<this_module>";
         if (eat_token(p, "from")) {
-            setmoduleuri(p,head,read_string_literal(p));
+            moduleuri = read_string_literal(p);
         }
-        else{
-            setmoduleuri(p,head, "<this_module>");
+        FOR_EACH_LIST(EXPORT_CALL, lout, layout){
+            lout->arg0->primary = moduleuri;
         }
         return layout->head;
     }

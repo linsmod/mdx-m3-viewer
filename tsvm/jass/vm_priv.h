@@ -187,20 +187,21 @@ struct jass_s {
 
     // global shared types
     LPHASHTABLE g_shared_types; 
+    LPJASSTYPE types; // vm core types and the code registered types
     JASSVAR stack[MAX_JASS_STACK];
     DWORD num_stack;
     LPJASSVAR base_sp;
-    LPJASSVAR caller_sp;
     LPJASSVAR stack_pointer;
     JASSCONTEXT context;
     LPCTOKEN current_token;
-    LPJASSMODULE entrymodule;
+    LPJASSMODULE main_module;
     LPJASSMODULE this_module;
+    LPCSTR currscript;
     LPLISTNODE depends;
     LPJASSNS import_ns;
 
-    // for inplace call stack check
-    LPCJASSFUNC f_onstack;
+    LPCJASSFUNC callee;
+    LPCJASSFUNC caller;
 
 
     // global shared functions
