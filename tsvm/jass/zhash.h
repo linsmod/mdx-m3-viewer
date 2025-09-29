@@ -1,8 +1,9 @@
 #ifndef ZHASH_H
 #define ZHASH_H
 
+#include "shared.h"
 #include <stdbool.h>
-
+#include <stddef.h>
 // hash table
 // keys are strings
 // values are void *pointers
@@ -25,6 +26,12 @@ struct ZHashTable {
   struct ZHashEntry **entries;
 };
 
+struct ZHashKey{
+  char *str;
+  struct ZHashKey* next;
+};
+KNOWN_AS(ZHashKey, ZHashKey);
+
 // hash table creation and destruction
 struct ZHashTable *zcreate_hash_table(void);
 void zfree_hash_table(struct ZHashTable *hash_table);
@@ -34,5 +41,6 @@ void zhash_set(struct ZHashTable *hash_table, char *key, void *val);
 void *zhash_get(struct ZHashTable *hash_table, char *key);
 void *zhash_delete(struct ZHashTable *hash_table, char *key);
 bool zhash_exists(struct ZHashTable *hash_table, char *key);
+LPZHashKey zhash_getkeys(struct ZHashTable *hash_table);
 
 #endif

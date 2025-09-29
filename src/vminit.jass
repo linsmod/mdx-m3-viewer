@@ -26,12 +26,13 @@ constant native __unm takes number returns number
 constant native __not takes auto returns boolean
 constant native __cond takes boolean,auto,auto returns auto
 
+type Math
 type Array
 type Float32Array
 type Object
 constant native Array.constructor takes integer size returns Array
 constant native Float32Array.constructor takes integer size returns Array
 constant native Object.constructor takes nothing returns Object
-type Math
+
 
 

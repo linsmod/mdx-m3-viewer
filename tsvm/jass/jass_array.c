@@ -9,9 +9,8 @@
 
 
 DWORD __Object_constructor(LPJASS j) {
-    LPJASSOBJECT obj= ALLOCZ(obj, JASSOBJECT);
-    obj->ht= zcreate_hash_table();
-    return jass_pushhandle(j,obj,"Object");
+    LPJASSOBJECT obj= alloc_obj();
+    return jass_pushobject(j,obj);
 }
 
 DWORD __Array_constructor(LPJASS j) {
@@ -31,8 +30,8 @@ static NATIVE arrayfuncs[] ={
 };
 
 void jass_register_Array(LPJASS j){
-    jass_register_type(j,"Object","Object.constructor");
-    jass_register_type(j,"Array","Array.constructor");
-    jass_register_type(j,"Float32Array","Float32Array.constructor");
+    // jass_register_type(j,"Object","Object.constructor");
+    // jass_register_type(j,"Array","Array.constructor");
+    // jass_register_type(j,"Float32Array","Float32Array.constructor");
     jass_register_natives(j,arrayfuncs);
 }

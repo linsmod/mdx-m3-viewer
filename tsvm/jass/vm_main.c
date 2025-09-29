@@ -79,18 +79,74 @@ DWORD jass_doonstackfunction_args(LPJASS j,LPCTOKEN tkargs);
 DWORD jass_dofunction_args(LPJASS j,LPCJASSFUNC f, LPCTOKEN tkargs);
 LPCJASSTYPE get_base_type(LPCJASSTYPE type) ;
 void eval_TOKENS(LPJASS j, LPCTOKEN token);
+static LPJASSOBJECT find_obj(LPJASS j,LPCSTR name);
 
 LPJASSDICT alloc_dict(){
     LPJASSDICT dict= JASSALLOC(dict,JASSDICT);
     return dict;
 }
-
+LPJASSPROP alloc_prop(BOOL isref){
+    LPJASSPROP dict= JASSALLOC(dict,JASSPROP);
+    dict->isref= isref;
+    return dict;
+}
+#define PROPS_CAP 22
 LPJASSOBJECT alloc_obj(){
     LPJASSOBJECT obj = ALLOCZ(obj, JASSOBJECT);
     obj->ht = zcreate_hash_table();
+    obj->capacity = PROPS_CAP;
+    obj->props  = vmext_alloc(sizeof(JASSDICT) * PROPS_CAP);
     return obj;
 }
-
+void jass_setpropbyref(LPJASS j, LPJASSOBJECT obj,LPCSTR key,LPJASSDICT ref){
+    LPJASSPROP dict =  zhash_get(obj->ht, (LPSTR)key);
+    if(dict){
+        // overwrite
+        dict->refp = ref;
+    }
+    else{
+        dict = alloc_prop(true);
+        dict->key =strdup(key);
+        dict->refp = ref;
+        if(obj->num_props >= obj->capacity){
+            LPJASSPROP* props = obj->props;
+            LPJASSPROP*  alloc = ALLOCZN(alloc,JASSPROP, obj->num_props+PROPS_CAP);
+            memcpy(alloc, props, obj->num_props * sizeof(JASSPROP));
+            obj->props = alloc;
+        }
+        obj->props[obj->num_props]=dict;
+        obj->num_props++;
+        zhash_set(obj->ht, strdup(key), &dict->value);
+    }
+}
+void jass_setprop(LPJASS j, LPJASSOBJECT obj,LPCSTR key,JASSVAR var){
+    LPJASSPROP prop =  zhash_get(obj->ht, (LPSTR)key);
+    if(prop){
+        // overwrite
+        prop->value = var;
+    }
+    else{
+        prop = alloc_prop(false);
+        prop->key =strdup(key);
+        prop->value.type = var.type;
+        jass_copy(j,&prop->value, &var);
+        if(obj->num_props >= obj->capacity){
+            LPJASSPROP* props = obj->props;
+            LPJASSPROP*  alloc = ALLOCZN(alloc,JASSPROP, obj->num_props+PROPS_CAP);
+            memcpy(alloc, props, obj->num_props * sizeof(JASSPROP));
+            obj->props = alloc;
+        }
+        obj->props[obj->num_props]=prop;
+        obj->num_props++;
+        zhash_set(obj->ht, strdup(key), &prop->value);
+    }
+}
+void jass_setfunctionprop(LPJASS j, LPJASSOBJECT obj,LPCSTR key,LPJASSFUNC func){
+    JASSVAR var;
+    var.type = find_typebyid(jasstype_function);
+    var.value = func;
+    jass_setprop(j, obj,key,var);
+}
 
 BOOL atob(LPCSTR str) {
     return !strcmp(str, "true");
@@ -277,7 +333,7 @@ BOOL is_string(LPCSTR tok) {
     return *tok == '\"' ||  *tok == '\'';
 }
 
-BOOL is_simpleidentifier(LPCSTR str,DWORD pf) {
+BOOL is_simpleidentifier(LPCSTR str,DWORD parsing_flags) {
     if (!isalpha(*str) && *str != '_')
         return false;
     for (LPCSTR s = str; *s; ++s) {
@@ -285,14 +341,30 @@ BOOL is_simpleidentifier(LPCSTR str,DWORD pf) {
             return false;
     }
     for (LPKEYWORD kw = keywords; kw->kw; kw++) {
-        if (kw->pf == pf && !strcmp(str, kw->kw)) {
+        if (kw->pf == parsing_flags && !strcmp(str, kw->kw)) {
             return false;
         }
     }
     return true;
 }
+LPSTR getqualifiedlead(LPCSTR str){
+    LPCSTR chr;
+    if (!str || !(chr=strchr(str, '.'))) return NULL;
+    if(chr && chr-str>0){
+        return strndup(str,chr-str);
+    }
+    return  NULL;
+}
+LPSTR getqualifiedrest(LPCSTR str){
+    LPCSTR chr;
+    if (!str || !(chr=strchr(str, '.'))) return NULL;
+    if(chr && strlen(chr)>1){
+        return strndup(chr+1,strlen( chr)-1);
+    }
+    return  NULL;
+}
 
-BOOL is_qualified_identifier(LPCSTR str,DWORD pf) {
+BOOL is_qualified_identifier(LPCSTR str,DWORD parsing_flag) {
     // Check if the string contains at least one dot and valid identifiers separated by dots
     if (!str || !strchr(str, '.')) return false;
 
@@ -301,7 +373,7 @@ BOOL is_qualified_identifier(LPCSTR str,DWORD pf) {
         LPCSTR dot = strchr(start, '.');
         if (!dot) {
             // Last segment, must be a valid identifier
-            return is_simpleidentifier(start,pf);
+            return is_simpleidentifier(start,parsing_flag);
         }
         // Check the segment before the dot
         char segment[128];
@@ -309,7 +381,7 @@ BOOL is_qualified_identifier(LPCSTR str,DWORD pf) {
         if (len >= sizeof(segment)) return false;
         strncpy(segment, start, len);
         segment[len] = '\0';
-        if (!is_simpleidentifier(segment,pf)) return false;
+        if (!is_simpleidentifier(segment,parsing_flag)) return false;
         start = dot + 1;
     }
 }
@@ -498,9 +570,11 @@ void jass_register_type(LPJASS j, LPSTR typename,LPSTR ctorname) {
     if(zhash_exists(j->g_shared_types, typename)){
         printf("WARN: jass_register_type override `%s`\n",typename);
     }
-    zhash_set(j->g_shared_types, typename, ctorname);
+    LPJASSOBJECT obj = alloc_obj();
+    zhash_set(j->g_shared_types, typename, obj);
 }
 void jass_register_natives(LPJASS j ,LPNATIVE cfuncs) {
+    
     for (LPNATIVE m = cfuncs; m->name; m++) { 
         if(zhash_exists(j->g_shared_natives, m->name)){
             printf("WARN: jass_register_natives override `%s`\n",m->name);
@@ -519,37 +593,27 @@ static LPJASSVAR find_dict(LPJASSDICT dict, LPCSTR name) {
     }
     return NULL;
 }
-static LPJASSIMPORTED alloc_imported(LPJASSMODULE module_from, LPCSTR name,DWORD type) {
+static void VM_EvalImport(LPJASS j, LPJASSMODULE module_from, LPSTR varname_from,LPSTR alias, DWORD type) {
     if(type==IMPORTED_VAR){
         FOR_EACH_LIST(JASSDICT, item, module_from->exports) {
-            if (!strcmp(item->key, name)) {
-                LPJASSIMPORTED locator  = ALLOCZ(locator,JASSIMPORTED);
-                locator->key = name;
-                locator->module = module_from;
-                locator->var = &item->value;
-                locator->importtype = type;
-                return locator;
+            if (!strcmp(item->key, varname_from)) {
+                zhash_set(j->this_module->importedvars, alias, item);
             }
         }
-        return NULL;
+        
+        // return NULL;
     }
     else if(type==IMPORTED_DEFAULT){
         LPJASSDICT single = module_from->exports;
         assert(!single->next);
-        LPJASSIMPORTED locator  = ALLOCZ(locator,JASSIMPORTED);
-        locator->key = name;
-        locator->module = module_from;
-        locator->var = &single->value;
-        locator->importtype = type;
-        return locator;
+        zhash_set(j->this_module->importedvars, alias, single);
     }
     else{
-         // import all
-        LPJASSIMPORTED locator  = ALLOCZ(locator,JASSIMPORTED);
-        locator->key = name;
-        locator->module = module_from;
-        locator->importtype = IMPORTED_OBJ;
-        return locator;
+        LPJASSOBJECT obj =  alloc_obj();
+        FOR_EACH_LIST(JASSDICT, item, module_from->exports) {
+            jass_setpropbyref(j, obj, item->key, item);
+        }
+        zhash_set(j->this_module->importedobjs,(LPSTR)varname_from,obj);
     }
 }
 
@@ -1194,6 +1258,7 @@ LPJASSDICT parse_dict(LPJASS j, LPCTOKEN token) {
 TOKENFUNC(TOKENS);
 TOKENFUNC(SINGLETOKEN);
 
+// 相当于class
 TOKENFUNC(TYPEDEF) { 
     LPJASSTYPE type  = JASSALLOC(type , JASSTYPE);
     type->name = token->primary;
@@ -1205,6 +1270,9 @@ TOKENFUNC(TYPEDEF) {
         zhash_set(j->g_shared_types, token->primary, NULL/*ctor_function_name*/);
     }
     ADD_TO_LIST(type, j->types);
+
+    LPJASSOBJECT obj = alloc_obj();
+    zhash_set(j->g_shared_objects, token->primary, obj);
 }
 
 TOKENFUNC(IF) {
@@ -1240,7 +1308,7 @@ TOKENFUNC(ASSIGN){
         }
     }
     else {
-        jass_dumpenvfpwd(j);
+        jass_dumpenvff(j);
         fprintf(stderr, "Can't find variable %s in an assignment\n", left->primary);
         assert(0);
     }
@@ -1297,7 +1365,8 @@ TOKENFUNC(FUNCTION) {
     func->returns = find_type(j, token->secondary);
     func->codefile = token->sref->file;
     if(!func->returns){
-        jass_dumpenvfpwd(j);
+        jass_dumpenvff(j);
+        assert(0);
     }
     assert(func->returns);
     assert(!token->args);
@@ -1316,6 +1385,21 @@ TOKENFUNC(FUNCTION) {
         func->f = cfunction->f;
         // todo jassfreetoken
         func->code = NULL;
+
+        // 把方法绑定到类型对象上面
+        LPSTR lead= getqualifiedlead(func->name);
+        if(lead){
+            LPJASSOBJECT obj = find_obj(j, lead);
+            vmext_free(lead);
+            if(obj){
+                LPSTR rest = getqualifiedrest(func->name);
+                vmext_free(rest);
+                jass_setfunctionprop(j,obj, rest, func);
+            }
+            else{
+                assert(0);
+            }
+        }
     }
     // // var a = function(){}()()...
     if(token->flags & TF_ANONYMOUS){
@@ -1380,10 +1464,7 @@ TOKENFUNC(IMPORT_DEFAULT_ENTRY){
         return;
     }
     assert(token->secondary);
-    LPJASSIMPORTED entry = alloc_imported(module,token->secondary,IMPORTED_DEFAULT);
-    assert(entry);
-    PUSH_BACK(JASSIMPORTED, entry, j->this_module->imports);
-    // zhash_set(j->this_module->importedvars, item->primary, entry->var);
+    VM_EvalImport(j,module,token->secondary,token->secondary,IMPORTED_DEFAULT);
 }
 
 TOKENFUNC(IMPORT_ALL_ENTRIES) {
@@ -1396,48 +1477,48 @@ TOKENFUNC(IMPORT_ALL_ENTRIES) {
     LPJASSMODULE module = jass_loadmodule(j, search);
     assert (module);
 
-    LPJASSIMPORTED imported = alloc_imported(module, objalias,IMPORTED_OBJ);
+    VM_EvalImport(j,module, objalias,objalias,IMPORTED_OBJ);
     
-    PUSH_BACK(JASSIMPORTED, imported, j->this_module->imports);
+    // PUSH_BACK(JASSIMPORTED, imported, j->this_module->imports);
 
    
-    int num = 0;
-    FOR_EACH_LIST(JASSDICT, dict, module->exports){
-        // // import key1,key2,...,keyn under ns
-        // // LPJASSIMPORTED entry = alloc_imported(module, var->key);
-        // // update entry's key to qualified
-        size_t ns_len = strlen(objalias);
-        size_t key_len = strlen(dict->key);
-        char *qualified_key = vmext_alloc(ns_len + 1 + key_len + 1); // ns.key\0
-        sprintf(qualified_key, "%s.%s", objalias, dict->key);
-        // // entry->key = qualified_key;
-        // // PUSH_BACK(JASSIMPORTED, entry, j->this_module->imports);
+    // int num = 0;
+    // FOR_EACH_LIST(JASSDICT, dict, module->exports){
+    //     // // import key1,key2,...,keyn under ns
+    //     // // LPJASSIMPORTED entry = alloc_imported(module, var->key);
+    //     // // update entry's key to qualified
+    //     size_t ns_len = strlen(objalias);
+    //     size_t key_len = strlen(dict->key);
+    //     char *qualified_key = vmext_alloc(ns_len + 1 + key_len + 1); // ns.key\0
+    //     sprintf(qualified_key, "%s.%s", objalias, dict->key);
+    //     // // entry->key = qualified_key;
+    //     // // PUSH_BACK(JASSIMPORTED, entry, j->this_module->imports);
         
-        // LPJASSVAR item;
-        // jass_copy(j, item, &dict->value);
-        zhash_set(j->this_module->importedvars, qualified_key, &dict->value);
-        num++;
-    }
-    LPJASSOBJECT obj = alloc_obj();
-    obj->code = token;
-    obj->num_props = num;
-    obj->props = vmext_alloc(sizeof(JASSDICT) * num);
-    obj->ht = zcreate_hash_table();
-    num=0;
-    FOR_EACH_LIST(JASSDICT, dict, module->exports){
-        obj->props[num] = dict;
-        zhash_set(obj->ht, (LPSTR)dict->key, &dict->value);
-        num+=1;
-    }
-    jass_pushobject(j, obj);
-    LPJASSVAR var = ALLOCZ(var, JASSVAR);
-    var->type = find_typebyid(jasstype_object);
-    jass_copy(j,var, jass_topvalue(j));
-    jass_pop(j, 1);
-    imported->var =var;
-    imported->obj = obj;
-    zhash_set(j->this_module->importedvars, objalias, var);
-    assert(num>0);
+    //     // LPJASSVAR item;
+    //     // jass_copy(j, item, &dict->value);
+    //     zhash_set(j->this_module->importedvars, qualified_key, &dict->value);
+    //     num++;
+    // }
+    // LPJASSOBJECT obj = alloc_obj();
+    // obj->code = token;
+    // obj->num_props = num;
+    // obj->props = vmext_alloc(sizeof(JASSDICT) * num);
+    // obj->ht = zcreate_hash_table();
+    // num=0;
+    // FOR_EACH_LIST(JASSDICT, dict, module->exports){
+    //     obj->props[num] = dict;
+    //     zhash_set(obj->ht, (LPSTR)dict->key, &dict->value);
+    //     num+=1;
+    // }
+    // jass_pushobject(j, obj);
+    // LPJASSVAR var = ALLOCZ(var, JASSVAR);
+    // var->type = find_typebyid(jasstype_object);
+    // jass_copy(j,var, jass_topvalue(j));
+    // jass_pop(j, 1);
+    // imported->var =var;
+    // imported->obj = obj;
+    // zhash_set(j->this_module->importedvars, objalias, var);
+    // assert(num>0);
 }
 
 // import { export1, export2 } from 'xxx'
@@ -1451,10 +1532,7 @@ TOKENFUNC(IMPORT_ENTRY_LIST) {
     }
     assert(token->args);
     FOR_EACH_LIST(TOKEN, item, token->args){
-        LPJASSIMPORTED entry = alloc_imported(module,item->primary,IMPORTED_VAR);
-        assert(entry);
-        PUSH_BACK(JASSIMPORTED, entry, j->this_module->imports);
-        zhash_set(j->this_module->importedvars, item->primary, entry->var);
+        VM_EvalImport(j,module,item->primary,item->primary,IMPORTED_VAR);
     }
 }
 
@@ -1607,6 +1685,7 @@ DWORD filepflags(LPCSTR fileName){
 }
 static LPHASHTABLE g_jass_natives;
 static LPHASHTABLE g_jass_types;
+static LPHASHTABLE g_jass_objects;
 LPJASS jass_newstate(LPJASSMODULE module) {
 
     LPJASS j  = JASSALLOC(j , JASS);
@@ -1620,6 +1699,7 @@ LPJASS jass_newstate(LPJASSMODULE module) {
     if(!g_jass_natives){
         j->g_shared_natives = zcreate_hash_table();
         j->g_shared_types = zcreate_hash_table();
+        j->g_shared_objects = zcreate_hash_table();
         jass_register_natives(j,corecfuncs);
         jass_register_Math(j);
         jass_register_Array(j);
@@ -1630,6 +1710,7 @@ LPJASS jass_newstate(LPJASSMODULE module) {
     else{    
         j->g_shared_natives=g_jass_natives ;
         j->g_shared_types= g_jass_types ;
+        j->g_shared_objects = g_jass_objects;
     }
     
 
@@ -1869,7 +1950,9 @@ DWORD jass_call(LPJASS j, DWORD argc) {
 #endif
     return ret;
 }
+void jass_dumpobjf(LPJASS j,LPJASSOBJECT var,FILE* f){
 
+}
 void jass_dumpvarf(LPJASS j,LPCJASSVAR var,FILE* f){
         switch (jass_getvarbasetype(var)) {
             case jasstype_integer:
@@ -2016,6 +2099,9 @@ void jass_dumpvar(LPJASS j,LPCJASSVAR var){
         }
         fprintf(stdout, "\n");
 }
+static LPJASSOBJECT find_obj(LPJASS j,LPCSTR name){
+    return zhash_get(j->g_shared_objects, (LPSTR)name);
+}
 // import a from xxx
 // import b from xxx
 /// export {a,b}
@@ -2049,9 +2135,9 @@ static LPJASSVAR find_var(LPJASS j,LPCSTR name) {
         }
     }
 
-    LPJASSVAR var = zhash_get(j->this_module->importedvars,(LPSTR)name);
-    if(var){
-        return var;
+    LPJASSDICT entry = zhash_get(j->this_module->importedvars,(LPSTR)name);
+    if(entry){
+        return &entry->value;
     }
     FOR_EACH_LIST(JASSDICT, dict, j->this_module->exports){
         if(!strcmp(name, dict->key)){
@@ -2130,6 +2216,18 @@ void jass_dumpenvf(LPJASS j,FILE *f) {
     }
 
     fprintf(f, "\n=================================================\n");
+    fprintf(f, "[Global shared objects]");
+    fprintf(f, "\n=================================================\n");
+    LPZHashKey keys= zhash_getkeys(j->g_shared_objects);
+    FOR_EACH_LIST(ZHashKey, key,keys){
+        // LPCJASSVAR var = zhash_get(j->g_shared_objects, key->key);
+        // jass_dumpvarf(j, var, f);
+        fprintf(f,"`%s`\n",key->str);
+        vmext_free(key->str);
+    }
+    DELETE_LIST(ZHashKey,keys,vmext_free);
+
+    fprintf(f, "\n=================================================\n");
     fprintf(f, "[main_module] %p %s",j->main_module, j->main_module->filename);
     fprintf(f, "\n=================================================\n");
     jass_dumpmoduleenvf(j, j->main_module, f);
@@ -2142,7 +2240,7 @@ void jass_dumpenvf(LPJASS j,FILE *f) {
     }
     fprintf(f, "\n\n");
 }
-void jass_dumpenvfpwd(LPJASS j){
+void jass_dumpenvff(LPJASS j){
     FILE* f = fopen("jass_dumpenv.txt", "w");
     jass_dumpenvf(j,f);
     fclose(f);

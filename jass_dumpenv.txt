@@ -32,13 +32,21 @@
 =================================================
 [Global shared typedefs]
 =================================================
-`Math`
 `Object`
 `Float32Array`
 `Array`
+`Math`
 
 =================================================
-[main_module] 0x555555977180 ./src/vminit.jass
+[Global shared objects]
+=================================================
+`Array`
+`Object`
+`Float32Array`
+`Math`
+
+=================================================
+[main_module] 0x555555979a30 ./src/vminit.jass
 =================================================
 
 [globals]
@@ -47,20 +55,18 @@
 [exports]
 
 [imports]
-`version`: "5.13.0" /home/wulin/mdx-m3-viewer/src/version.ts
-
 
 [functions]
 
-[locals at __evalprog 0x555555571840]
+[locals at __evalprog 0x555555573840]
 `degree`: 0.017453
 `RANDOM`: jasscode "Math.random"
-`ARRAY_TYPE`: function `Float32Array.constructor` 0x555555980e80 
+`ARRAY_TYPE`: jasscode "Float32Array"
 `EPSILON`: 0.000001
 
 
 =================================================
-[module] 0x555555983a40 /home/wulin/mdx-m3-viewer/src/version.ts
+[module] 0x555555988560 /home/wulin/mdx-m3-viewer/src/version.ts
 =================================================
 
 [globals]
@@ -72,10 +78,10 @@
 
 [functions]
 
-[locals at __evalprog 0x555555571840]
+[locals at __evalprog 0x555555573840]
 `degree`: 0.017453
 `RANDOM`: jasscode "Math.random"
-`ARRAY_TYPE`: function `Float32Array.constructor` 0x555555980e80 
+`ARRAY_TYPE`: jasscode "Float32Array"
 `EPSILON`: 0.000001
 
 

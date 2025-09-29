@@ -1,8 +1,13 @@
+#include <limits.h>
+#include <locale.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "./zhash.h"
+#include "shared.h"
 
 // helper macros and functions, declarations
 #define ZCOUNT_OF(arr) (sizeof(arr) / sizeof(*arr))
@@ -248,6 +253,66 @@ static void zhash_rehash(struct ZHashTable *hash_table, size_t size_index)
   }
 
   zfree((void *) entries);
+}
+extern char *strdup(const char *s);
+
+size_t zhash_countkeys(struct ZHashTable *hash_table){
+    if (!hash_table || !hash_table->entries) {
+        return 0;
+    }
+
+    size_t size = hash_sizes[hash_table->size_index];
+    size_t count = 0;
+
+    // 第一次遍历：统计总 key 数量
+    for (size_t i = 0; i < size; i++) {
+        struct ZHashEntry *entry = hash_table->entries[i];
+        while (entry) {
+            count++;
+        }
+    }
+    return count;
+}
+// 返回所有 key 的副本（调用者需 free 每个 key 和数组）
+// 返回值：char**，以 NULL 结尾；失败返回 NULL
+ZHashKey* zhash_getkeys(struct ZHashTable *hash_table)
+{
+    if (!hash_table || !hash_table->entries) {
+        return NULL;
+    }
+
+    size_t size = hash_sizes[hash_table->size_index];
+    size_t count = 0;
+
+    // 第一次遍历：统计总 key 数量
+    for (size_t i = 0; i < size; i++) {
+        struct ZHashEntry *entry = hash_table->entries[i];
+        while (entry) {
+            count++;
+            entry = entry->next;
+        }
+    }
+
+    if (count == 0) {
+        // 返回空列表（只有 NULL）
+        return NULL;
+    }
+
+    // 分配结果数组：count 个 char* + 1 个 NULL
+    struct ZHashKey* head = NULL;
+
+    // 第二次遍历：收集所有 key
+    for (size_t i = 0; i < size; i++) {
+        struct ZHashEntry *entry = hash_table->entries[i];
+        while (entry) {
+            ZHashKey* key = zcalloc(count + 1, sizeof(struct ZHashKey*));
+            key->str = strdup(entry->key);
+            key->next = NULL;
+            PUSH_BACK(ZHashKey,key , head);
+            entry = entry->next;
+        }
+    }
+    return head;
 }
 
 static size_t znext_size_index(size_t size_index)

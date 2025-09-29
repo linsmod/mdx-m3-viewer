@@ -29,6 +29,7 @@ KNOWN_AS(gtriggeraction_s, TRIGGERACTION);
 KNOWN_AS(jass_array, JASSARRAY);
 KNOWN_AS(jass_object, JASSOBJECT);
 KNOWN_AS(jass_dict, JASSDICT);
+KNOWN_AS(jass_prop, JASSPROP);
 KNOWN_AS(list_node, LISTNODE);
 KNOWN_AS(jass_module, JASSMODULE);
 KNOWN_AS(jass_imported, JASSIMPORTED); 
@@ -119,8 +120,10 @@ struct jass_module {
 
     LPJASSIMPORTED imports;
 
-    // key=import alias, value = LPJASSVAR in target module
+    // key=import_alias, value:JASSDICT in target module.exports
     LPHASHTABLE importedvars;
+
+    LPHASHTABLE importedobjs;
 };
 
 struct list_node_descriotor{
@@ -133,6 +136,7 @@ struct list_node{
     HANDLE p;
     struct list_node_descriotor descriptor;
 };
+LPJASSOBJECT alloc_obj();
 LPJASS jass_newstate(LPJASSMODULE module);
 void jass_register_natives(LPJASS j,LPNATIVE cfuncs);
 void jass_register_type(LPJASS j, LPSTR typename,LPSTR constructorname);
@@ -174,7 +178,7 @@ BOOL jass_evaluatetrigger(LPJASS j, LPTRIGGER trigger);
 void jass_executetrigger(LPJASS j, LPTRIGGER trigger);
 void jass_doclosure(LPJASS j,LPJASSFUNC func);
 void jass_dumpstack(LPJASS j);
-void jass_dumpenvfpwd(LPJASS j);
+void jass_dumpenvff(LPJASS j);
 void jass_dumpenv(LPJASS j);
 void jass_dumpvar(LPJASS j,LPCJASSVAR var);
 #endif

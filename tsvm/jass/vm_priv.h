@@ -166,6 +166,17 @@ struct jass_dict {
     JASSVAR value;
 };
 
+struct jass_prop {
+    LPJASSDICT next;
+    LPCSTR key;
+    BOOL isref;
+    union {
+        JASSVAR value;
+        LPJASSDICT refp;
+    };
+};
+
+
 enum{
     IMPORTED_VAR,
     IMPORTED_OBJ,
@@ -182,9 +193,11 @@ struct jass_imported{
     LPJASSOBJECT obj;
 };
 struct jass_object{
-    LPJASSDICT* props;
+    LPJASSPROP* props; 
+    DWORD capacity;
     DWORD num_props;
-    LPHASHTABLE ht; // LPJASSVAR
+    // v:LPJASSVAR
+    LPHASHTABLE ht; 
     LPCTOKEN code; // object is defined by which code 
     LPJASSOBJECT next;
 };
@@ -200,6 +213,8 @@ struct jass_s {
     // global shared types
     LPHASHTABLE g_shared_types; 
     LPJASSTYPE types; // vm core types and the code registered types
+    // v:LPJASSOBJECT , eg. class Math has a default static object `Math`
+    LPHASHTABLE g_shared_objects;
     JASSVAR stack[MAX_JASS_STACK];
     DWORD num_stack;
     LPJASSVAR base_sp;

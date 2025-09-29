@@ -25,6 +25,10 @@ extern char *strdup(const char *s);
 (VAR)=vmext_alloc(sizeof(type)); \
 memset((VAR), 0, sizeof(type))
 
+#define ALLOCZN(VAR,type,n) \
+(VAR)=vmext_alloc(sizeof(type)); \
+memset((VAR), 0, sizeof(type)*(n))
+
 #define FOR_LOOP(property, max) \
 for (DWORD property = 0, end = max; property < end; ++property)
 
