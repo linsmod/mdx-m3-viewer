@@ -497,7 +497,6 @@ PARSER(keyword_export) {
 
     if(eat_token(p, "default")){
         head->flags = TF_EXPORTDEFAULT;
-        layout->arg1->primary = "<module>.default_export";
     }
     
     LPCSTR peek = peek_token(p);

@@ -1,5 +1,6 @@
 #pragma  once
 #include "../shared.h"
+#include "parser.h"
 #include "vm_public.h"
 // External methods that application must provides
 extern void vmext_skipbom(LPSTR);

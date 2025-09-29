@@ -11,9 +11,6 @@
 #define INDENT(depth) \
 FOR_LOOP(i, depth) fprintf(stdout," ");
 
-
-
-
 #define API_ALLOC(TYPE, NAME) TYPE *NAME = jass_newhandle(j, sizeof(TYPE), #NAME);
 
 KNOWN_AS(ZHashTable, HASHTABLE);
@@ -34,8 +31,7 @@ KNOWN_AS(jass_object, JASSOBJECT);
 KNOWN_AS(jass_dict, JASSDICT);
 KNOWN_AS(list_node, LISTNODE);
 KNOWN_AS(jass_module, JASSMODULE);
-KNOWN_AS(jass_namespace, JASSNS);
-KNOWN_AS(jass_nsvar, JASSDICTNS); 
+KNOWN_AS(jass_imported, JASSIMPORTED); 
 struct gtriggercondition_s {
     LPCJASSFUNC expr;
     LPTRIGGERCONDITION next;
@@ -104,13 +100,13 @@ struct jass_context {
     LPCJASSFUNC func;
 };
 struct jass_module {
-    LPCSTR name;           // 模块名（如 "utils.jass"）
-    LPCSTR file;
+    LPJASSMODULE next; //j->evaluted
+    LPCSTR displayname;           // 模块名（如 "utils.jass"）
+    LPCSTR filename;
     BOOL loaded;           // 是否已加载
     BOOL evaluating;       // 是否正在执行（防循环依赖死锁）
     LPJASSDICT exports;    // 显式导出的符号表
-    struct jass_module *next;
-    LPCSTR loader;
+    LPCSTR initiator;
 
     LPJASSDICT globals;
 
@@ -121,19 +117,21 @@ struct jass_module {
     // Explict declared functions in type of code (definit by ts or jass) and native( declared by vminit.jass)
     LPJASSFUNC functions; 
 
+    LPJASSIMPORTED imports;
 
-
-
-    LPJASSDICT imports;
+    // key=import alias, value = LPJASSVAR in target module
+    LPHASHTABLE importedvars;
 };
+
+struct list_node_descriotor{
+    LPCSTR oftype;
+    HANDLE opaque;
+};
+
 struct list_node{
-    void* p;
     struct list_node* next;
-};
-struct jass_namespace{
-    struct jass_namespace* next;
-    LPJASSDICTNS vars;
-    LPJASSMODULE module;
+    HANDLE p;
+    struct list_node_descriotor descriptor;
 };
 LPJASS jass_newstate(LPJASSMODULE module);
 void jass_register_natives(LPNATIVE cfuncs,LPHASHTABLE table);
@@ -176,6 +174,7 @@ BOOL jass_evaluatetrigger(LPJASS j, LPTRIGGER trigger);
 void jass_executetrigger(LPJASS j, LPTRIGGER trigger);
 void jass_doclosure(LPJASS j,LPJASSFUNC func);
 void jass_dumpstack(LPJASS j);
+void jass_dumpenv2txt(LPJASS j);
 void jass_dumpenv(LPJASS j);
 void jass_dumpvar(LPJASS j,LPCJASSVAR var);
 #endif

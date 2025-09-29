@@ -15,8 +15,8 @@
 #define JASS_UNM "-"
 #define JASS_COMMA ","
 #define TYPE_AUTO "auto_type"
-#define VMFUNC(NAME,TYPE) (JASSFUNC){ #NAME, NAME,TYPE,0,0,0,0,0}
-#define VMFUNC2(KEY,NAME,TYPE) { KEY, NAME,TYPE,0,0,0,0,0}
+#define VMFUNC(NAME,TYPE) (JASSFUNC){ #NAME, NAME,TYPE,0,0,0,0,0,0}
+#define VMFUNC2(KEY,NAME,TYPE) { KEY, NAME,TYPE,0,0,0,0,0,0}
 #define INF_LOOP_PROTECTION 1024
 
 #define assert_type(var, type) assert(jass_checkvartype(var, type))
@@ -25,13 +25,13 @@
 (VAR)=vmext_alloc(sizeof(type)); \
 memset((VAR), 0, sizeof(type))
 
-LPCJASSTYPE find_typebyid(LPCJASS j, JASSTYPEID id);
+LPCJASSTYPE find_typebyid(JASSTYPEID id);
 
 LPCJASSTYPE find_type(LPCJASS j, LPCSTR name);
 #define JASS_ADD_STACK(j, VAR, TYPE) \
 LPJASSVAR VAR = &j->stack[j->num_stack++]; \
 memset(VAR, 0, sizeof(*VAR)); \
-VAR->type = find_typebyid(j,TYPE);
+VAR->type = find_typebyid(TYPE);
 
 #define JASS_ADD_STACK2(j, VAR, TYPE) \
 LPJASSVAR VAR = &j->stack[j->num_stack++]; \
@@ -96,6 +96,7 @@ struct jass_var {
         HANDLE value;
         LPJASSFUNC _fn;
         LPCSTR _str;
+        LPJASSOBJECT _obj;
     };
     DWORD *refcount;
     BOOL constant;
@@ -141,6 +142,7 @@ struct jass_function {
     LPJASSPARAM params;
     LPCTOKEN code;
     BOOL constant;
+    LPCSTR codefile;
 };
 
 struct jass_array {
@@ -164,16 +166,24 @@ struct jass_dict {
     JASSVAR value;
 };
 
-// for namespaced vars
-struct jass_nsvar{
-    struct jass_nsvar* next;
-    LPCSTR ns;
-    LPCSTR key;
-    JASSVAR value;
+enum{
+    IMPORTED_VAR,
+    IMPORTED_OBJ,
+    IMPORTED_DEFAULT,
 };
 
+// for namespaced vars
+struct jass_imported{
+    LPJASSIMPORTED next;
+    LPCSTR key;
+    LPJASSMODULE module;
+    DWORD importtype; // var or all
+    LPJASSVAR var;
+    LPJASSOBJECT obj;
+};
 struct jass_object{
-    LPJASSDICT props;
+    LPJASSDICT* props;
+    DWORD num_props;
     LPHASHTABLE ht; // LPJASSVAR
     LPCTOKEN code; // object is defined by which code 
     LPJASSOBJECT next;
@@ -184,6 +194,8 @@ struct jass_s {
     // To export a native function into scripts scope, 
     // use `constant native xxxx takes xxx,... returns xxx` in vminit.jass 
     LPHASHTABLE g_shared_natives; 
+
+    LPJASSFUNC native_functions; 
 
     // global shared types
     LPHASHTABLE g_shared_types; 
@@ -196,9 +208,8 @@ struct jass_s {
     LPCTOKEN current_token;
     LPJASSMODULE main_module;
     LPJASSMODULE this_module;
-    LPCSTR currscript;
-    LPLISTNODE depends;
-    LPJASSNS import_ns;
+    LPJASSMODULE evaluted;
+    LPCSTR evaluting;
 
     LPCJASSFUNC callee;
     LPCJASSFUNC caller;
