@@ -30,7 +30,7 @@ static NATIVE libmathfuncs[] ={
     {0},
 };
 
-void jass_register_Math(LPHASHTABLE table,LPHASHTABLE types){
-    jass_register_type("Math",NULL, types);
-    jass_register_natives(libmathfuncs, table);
+void jass_register_Math(LPJASS j){
+    jass_register_type( j,"Math",NULL);
+    jass_register_natives(j,libmathfuncs);
 }

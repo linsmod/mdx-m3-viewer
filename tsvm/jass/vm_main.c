@@ -457,7 +457,7 @@ static LPCJASSFUNC find_function(LPJASS j, LPCSTR name) {
     printf("INFO: find_function `%s` results null.\n",name);
     return NULL;
 }
-static LPJASSVAR find_objvar(LPJASS j, LPCSTR name) {
+static LPJASSVAR find_importedobj(LPJASS j, LPCSTR name) {
     FOR_EACH_LIST(JASSIMPORTED, item, j->this_module->imports) {
         if (!strcmp(item->key, name)) {
             return item->var;
@@ -494,21 +494,21 @@ LPCJASSTYPE find_typebyid(JASSTYPEID id) {
 static LPCJASSFUNC evalprog = &VMFUNC(__evalprog, jasstype_nothing);
 static LPCJASSFUNC enosuchfunc = &VMFUNC(__enosuchfunction, jasstype_nothing);
 static LPCJASSFUNC export = &VMFUNC(__export, jasstype_nothing);
-void jass_register_type(LPSTR typename,LPSTR ctorname, LPHASHTABLE table) {
-    if(zhash_exists(table, typename)){
+void jass_register_type(LPJASS j, LPSTR typename,LPSTR ctorname) {
+    if(zhash_exists(j->g_shared_types, typename)){
         printf("WARN: jass_register_type override `%s`\n",typename);
     }
-    zhash_set(table, typename, ctorname);
+    zhash_set(j->g_shared_types, typename, ctorname);
 }
-void jass_register_natives(LPNATIVE cfuncs,LPHASHTABLE table) {
+void jass_register_natives(LPJASS j ,LPNATIVE cfuncs) {
     for (LPNATIVE m = cfuncs; m->name; m++) { 
-        if(zhash_exists(table, m->name)){
+        if(zhash_exists(j->g_shared_natives, m->name)){
             printf("WARN: jass_register_natives override `%s`\n",m->name);
         }
         else{
             printf("INFO: jass_register_natives insert `%s`\n",m->name);
         }
-        zhash_set(table, m->name, m);
+        zhash_set(j->g_shared_natives, m->name, m);
     }
 }
 static LPJASSVAR find_dict(LPJASSDICT dict, LPCSTR name) {
@@ -817,6 +817,13 @@ DWORD jass_pushtype(LPJASS j, LPCSTR value) {
     ((LPSTR)var->value)[len] = '\0';
     return 1;
 }
+DWORD jass_pushnothing(LPJASS j, LPCSTR value) {
+    int len = strlen(value);
+    JASS_ADD_STACK(j, var, jasstype_nothing);
+    JASS_SET_VALUE(var, value, len+1);
+    ((LPSTR)var->value)[len] = '\0';
+    return 1;
+}
 
 DWORD jass_pushnullhandle(LPJASS j, LPCSTR type) {
     return jass_pushhandle(j, NULL, type);
@@ -982,6 +989,8 @@ DWORD VM_EvalIdentifier(LPJASS j, LPCTOKEN token) {
     LPCJASSFUNC f = NULL;
     LPCJASSVAR v = NULL;
     LPCJASSTYPE t = NULL;
+    LPCSTR objname = NULL;
+
     assert(token->primary);
     if(!strcmp("vec4.clone", token->primary)){
         printf("dbg");
@@ -996,7 +1005,16 @@ DWORD VM_EvalIdentifier(LPJASS j, LPCTOKEN token) {
             return jass_pushtype(j,NULL);
         }
     }
-    else if ((v = find_var(j,token->primary))) {
+    if(!!(objname=strchr(token->primary, '.'))){
+        LPJASSVAR obj =  find_importedobj(j, strndup(token->primary,objname-token->primary));
+        if(obj){
+            // ht.key is qualified key
+            // ht.value is typeof LPJASSVAR
+            v= zhash_get(((LPJASSOBJECT)obj->value)->ht, (LPSTR)objname+1); 
+            return jass_pushvalue(j, v);
+        }
+    }
+    if ((v = find_var(j,token->primary))) {
         if(v->type->typeid>1000 || !v->type->name){
             jass_dumpenv(j);
             v = find_var(j,token->primary);
@@ -1004,9 +1022,14 @@ DWORD VM_EvalIdentifier(LPJASS j, LPCTOKEN token) {
         return jass_pushvalue(j, v);
     }
     else if((t = find_type(j, token->primary))){ // types are declared in vminit.jass
+
+        // Static method, eg. Math.hypot
+        if((f = find_function(j, token->primary))){
+            return jass_pushfunction(j, f);
+        }
         // find the type declared in native c
         if(!zhash_exists(j->g_shared_types, token->primary)){
-            printf("find the type but mappingless `%s` at %s\n",token->primary,JASS_DumpLocation(token->sref));
+            printf("Access nothing of `%s` at %s\n",token->primary,JASS_DumpLocation(token->sref));
             return jass_pushtype(j,token->primary);
         }
         
@@ -1199,6 +1222,30 @@ TOKENFUNC(IF) {
     }
 }
 
+
+TOKENFUNC(ASSIGN){
+    LPTOKEN left = token->args;
+    LPTOKEN right = left->next;
+    LPJASSVAR v = NULL;
+    // Set an exists var
+    assert(left->ttype == TT_IDENTIFIER || left->ttype == TT_ARRAYACCESS);
+    assert(left->primary); // varname
+
+    // set value of exists var
+    if ((v = find_var(j, left->primary))) {
+        if (left->index) {
+            return jass_set_array_value(j, v, left->index, right);
+        } else {
+            return jass_set_value(j, v, right);
+        }
+    }
+    else {
+        jass_dumpenvfpwd(j);
+        fprintf(stderr, "Can't find variable %s in an assignment\n", left->primary);
+        assert(0);
+    }
+}
+
 TOKENFUNC(SET) {
     LPJASSVAR v = NULL;
     // Set an exists var
@@ -1250,7 +1297,7 @@ TOKENFUNC(FUNCTION) {
     func->returns = find_type(j, token->secondary);
     func->codefile = token->sref->file;
     if(!func->returns){
-        jass_dumpenv2txt(j);
+        jass_dumpenvfpwd(j);
     }
     assert(func->returns);
     assert(!token->args);
@@ -1420,7 +1467,7 @@ TOKENFUNC(EXPORT_DEFAULT_ENTRY) {
     
     PUSH_BACK(JASSDICT, default_export, j->this_module->exports);
 }
-TOKENFUNC(EXPORT_ADD_ENTRY) {
+TOKENFUNC(EXPORT_ENTRY) {
     // layout: 
     //  - token.stmt: declaring vars target of exports and declare module uri
     //  - token.next: call __export(uri,varname,nullable alias)
@@ -1475,6 +1522,7 @@ struct {
 token_eval[] = {
     TOKENEVAL(TYPEDEF),
     TOKENEVAL(FUNCTION),
+    TOKENEVAL(ASSIGN),
     TOKENEVAL(VARDECL),
     TOKENEVAL(GLOBAL),
     TOKENEVAL(CALL),
@@ -1484,7 +1532,7 @@ token_eval[] = {
     TOKENEVAL(EXPORT_DEFAULT_ENTRY),
     TOKENEVAL(EXPORT_ALL_ENTRIES),
     TOKENEVAL(EXPORT_ENTRY_LIST),
-    TOKENEVAL(EXPORT_ADD_ENTRY),
+    TOKENEVAL(EXPORT_ENTRY),
     TOKENEVAL(IMPORT_DEFAULT_ENTRY),
     TOKENEVAL(IMPORT_ALL_ENTRIES),
     TOKENEVAL(IMPORT_ENTRY_LIST),
@@ -1570,16 +1618,21 @@ LPJASS jass_newstate(LPJASSMODULE module) {
     j->fn_evalprog = evalprog;
 
     if(!g_jass_natives){
-        g_jass_natives = zcreate_hash_table();
-        g_jass_types = zcreate_hash_table();
-        jass_register_natives(corecfuncs,g_jass_natives);
-        jass_register_Math(g_jass_natives,g_jass_types);
-        jass_register_Array(g_jass_natives,g_jass_types);
-        printf("INFO: jass_register_natives added %ld entries\n",g_jass_natives->entry_count);
+        j->g_shared_natives = zcreate_hash_table();
+        j->g_shared_types = zcreate_hash_table();
+        jass_register_natives(j,corecfuncs);
+        jass_register_Math(j);
+        jass_register_Array(j);
+        printf("INFO: jass_register_natives added %ld entries\n",j->g_shared_natives->entry_count);
+        g_jass_natives  = j->g_shared_natives;
+        g_jass_types = j->g_shared_types;
+}
+    else{    
+        j->g_shared_natives=g_jass_natives ;
+        j->g_shared_types= g_jass_types ;
     }
+    
 
-    j->g_shared_natives = g_jass_natives;
-    j->g_shared_types = g_jass_types;
     // LPCNATIVE entry= find_cfunction(j,"Array");
     // if(!!strcmp(entry->name,"Array")){
     //     printf("vm internal error");
@@ -1963,11 +2016,26 @@ void jass_dumpvar(LPJASS j,LPCJASSVAR var){
         }
         fprintf(stdout, "\n");
 }
+// import a from xxx
+// import b from xxx
+/// export {a,b}
+static LPJASSVAR objectField(LPJASS j,LPCSTR qualifiedname){
+    LPCSTR objname = NULL;
+    if(!!(objname=strchr(qualifiedname, '.'))){
+        LPJASSVAR obj =  find_importedobj(j, strndup(qualifiedname,objname-qualifiedname));
+        if(obj){
+            // ht.key is qualified key
+            // ht.value is typeof LPJASSVAR
+            return zhash_get(((LPJASSOBJECT)obj->value)->ht, (LPSTR)objname+1); 
+        }
+    }
+    return NULL;
+}
 
 static LPJASSVAR find_var(LPJASS j,LPCSTR name) {
     LPCSTR objname = NULL;
     if(!!(objname=strchr(name, '.'))){
-        LPJASSVAR obj =  find_objvar(j, strndup(name,objname-name));
+        LPJASSVAR obj =  find_importedobj(j, strndup(name,objname-name));
         if(obj){
             // ht.key is qualified key
             // ht.value is typeof LPJASSVAR
@@ -2025,10 +2093,6 @@ void jass_dumpmoduleenvf(LPJASS j, LPJASSMODULE module,FILE *f){
     FOR_EACH_LIST(JASSFUNC, dict, module->functions){
         fprintf(f,"`%s`\n",dict->name);
     }
-    fprintf(f,"\n[typedefs]\n");
-    FOR_EACH_LIST(JASSTYPE, dict, j->types){
-       fprintf(f,"`%s`\n",dict->name);
-    }
     LPJASSVAR zero = jass_stackvalue(j,0);
     if(zero->value == j->callee) //locals alwasy bound to the target function
     {
@@ -2056,6 +2120,14 @@ void jass_dumpenvf(LPJASS j,FILE *f) {
     FOR_EACH_LIST(JASSFUNC, dict, j->native_functions){
         fprintf(f,"`%s`\n",dict->name);
     }
+    
+    
+    fprintf(f, "\n=================================================\n");
+    fprintf(f, "[Global shared typedefs]");
+    fprintf(f, "\n=================================================\n");
+    FOR_EACH_LIST(JASSTYPE, dict, j->types){
+        fprintf(f,"`%s`\n",dict->name);
+    }
 
     fprintf(f, "\n=================================================\n");
     fprintf(f, "[main_module] %p %s",j->main_module, j->main_module->filename);
@@ -2070,7 +2142,7 @@ void jass_dumpenvf(LPJASS j,FILE *f) {
     }
     fprintf(f, "\n\n");
 }
-void jass_dumpenv2txt(LPJASS j){
+void jass_dumpenvfpwd(LPJASS j){
     FILE* f = fopen("jass_dumpenv.txt", "w");
     jass_dumpenvf(j,f);
     fclose(f);

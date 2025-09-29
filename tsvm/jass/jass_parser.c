@@ -192,6 +192,26 @@ static void parse_member(LPPARSER p, LPTOKEN tdef) {
     }
 }
 
+static BOOL parse_objinit(LPPARSER p, LPTOKEN obj){
+    LPTOKEN field = ALLOC_TOKEN(TT_INITFIELD, p);
+    field->primary = read_identifier(p);
+    if(eat_token(p, "=")){
+        field->stmt = ts_right_value(p);
+        PUSH_BACK(TOKEN, field, obj->fields);
+    }
+    else if(eat_token(p, "as")){ // optional
+        // This for eg. import {a as xxx } from ...
+        field->secondary = read_identifier(p);
+    }
+    while(eat_token(p, ",")){
+        LPTOKEN next = ALLOC_TOKEN(TT_INITFIELD, p);
+        next->primary = read_identifier(p);
+        next->stmt = ts_right_value(p);
+        PUSH_BACK(TOKEN, next, obj->fields);
+    }
+    return true;
+}
+
 #define PARSE_STMT_TO(p,path)\
 LPTOKEN temp = ALLOC_TOKEN(TT_TYPEDEF, p);\
 parse_stmt(p,temp);\
@@ -486,7 +506,7 @@ static EXPORT_CALL* build_export_call(LPPARSER p,LPTOKEN head){
 // _export(style,)
 PARSER(keyword_export) {
 
-    LPTOKEN head = ALLOC_TOKEN(TT_EXPORT_ADD_ENTRY, p);
+    LPTOKEN head = ALLOC_TOKEN(TT_EXPORT_ENTRY, p);
 
     EXPORT_CALL* layout = build_export_call(p,head);
     
@@ -706,10 +726,10 @@ LPTOKEN parse_operator_token(LPPARSER p) {
     if (eat_token(p, "=")) {
         op[2] = '=';
     }
-    if(!strcmp(op, "=")){ // assignment
-        LPTOKEN t = ALLOC_TOKEN(TT_SET, p);
-        return t;
-    }
+    // if(!strcmp(op, "=")){ // assignment
+    //     LPTOKEN t = ALLOC_TOKEN(TT_SET, p);
+    //     return t;
+    // }
     LPCSTR operatorid = jass_getoperator(op);
     LPTOKEN t = ALLOC_TOKEN(TT_CALL, p);
     t->primary = strdup(operatorid);
@@ -846,14 +866,20 @@ PARSER(parse_comparison_expression) {
     LPTOKEN left = parse_additive_expression(p);
     if (is_compare_operator(peek_token(p))) {
         LPTOKEN oper = parse_operator_token(p);
-        
-        if(oper->ttype==TT_SET){
-            assert(left->ttype == TT_IDENTIFIER || left->ttype ==TT_ARRAYACCESS);
-            oper->secondary = left->primary;
-            oper->stmt = ts_right_value(p);
-            assert(oper->stmt);
+        if(!strcmp("__assign",oper->primary)){
+            oper->ttype = TT_ASSIGN;
+            LPTOKEN right = ts_right_value(p);
+            PUSH_BACK(TOKEN, left, oper->args);
+            PUSH_BACK(TOKEN, right, oper->args);
             return oper;
         }
+        // if(oper->ttype==TT_SET){
+        //     assert(left->ttype == TT_IDENTIFIER || left->ttype ==TT_ARRAYACCESS);
+        //     // oper->secondary = left->primary;
+        //     // oper->stmt = ts_right_value(p);
+        //     // assert(oper->stmt);
+        //     // return oper;
+        // }
         LPTOKEN right = parse_comparison_expression(p);
         PUSH_BACK(TOKEN, left, oper->args);
         PUSH_BACK(TOKEN, right, oper->args);

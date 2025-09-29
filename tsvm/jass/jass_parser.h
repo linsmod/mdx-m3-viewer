@@ -14,6 +14,8 @@ typedef enum {
     TT_GLOBAL,
     TT_IDENTIFIER,
     TT_ARRAYACCESS,
+    TT_OBJECT,
+    TT_INITFIELD,
     TT_CALL,
     TT_CALLONSTACK,
     TT_INTEGER,
@@ -41,7 +43,8 @@ typedef enum {
     TT_EXPORT_ALL_ENTRIES,
     TT_EXPORT_ENTRY_LIST,
     TT_EXPORT_DEFAULT_ENTRY,
-    TT_EXPORT_ADD_ENTRY
+    TT_EXPORT_ENTRY,
+    TT_ASSIGN,
 } TOKENTYPE;
 
 // Flags a token is identifier of WHAT
@@ -81,6 +84,7 @@ struct token {
     LPTOKEN next;
     LPTOKEN params; // 形参
     LPTOKEN args; // 实参
+    LPTOKEN fields;// for object
     LPTOKEN condition;
     LPTOKEN elseblock;
     LPTOKEN index;

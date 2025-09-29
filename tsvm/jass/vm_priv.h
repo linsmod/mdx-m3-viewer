@@ -221,5 +221,5 @@ struct jass_s {
     LPCJASSFUNC fn_evalprog;
 };
 
-void jass_register_Array(LPHASHTABLE table,LPHASHTABLE types);
-void jass_register_Math(LPHASHTABLE table,LPHASHTABLE types);
+void jass_register_Array(LPJASS j);
+void jass_register_Math(LPJASS j);

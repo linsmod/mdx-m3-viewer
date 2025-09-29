@@ -30,9 +30,9 @@ static NATIVE arrayfuncs[] ={
     {0}
 };
 
-void jass_register_Array(LPHASHTABLE fntable,LPHASHTABLE types){
-    jass_register_type("Object","Object.constructor", types);
-    jass_register_type("Array","Array.constructor", types);
-    jass_register_type("Float32Array","Float32Array.constructor", types);
-    jass_register_natives(arrayfuncs,fntable);
+void jass_register_Array(LPJASS j){
+    jass_register_type(j,"Object","Object.constructor");
+    jass_register_type(j,"Array","Array.constructor");
+    jass_register_type(j,"Float32Array","Float32Array.constructor");
+    jass_register_natives(j,arrayfuncs);
 }

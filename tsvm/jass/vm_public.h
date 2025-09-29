@@ -134,8 +134,8 @@ struct list_node{
     struct list_node_descriotor descriptor;
 };
 LPJASS jass_newstate(LPJASSMODULE module);
-void jass_register_natives(LPNATIVE cfuncs,LPHASHTABLE table);
-void jass_register_type(LPSTR typename,LPSTR constructorname, LPHASHTABLE table);
+void jass_register_natives(LPJASS j,LPNATIVE cfuncs);
+void jass_register_type(LPJASS j, LPSTR typename,LPSTR constructorname);
 LPJASSMODULE jass_loadmodule(LPJASS loader, LPCSTR module_name);
 void jass_setnull(LPJASSVAR var);
 void jass_close(LPJASS);
@@ -174,7 +174,7 @@ BOOL jass_evaluatetrigger(LPJASS j, LPTRIGGER trigger);
 void jass_executetrigger(LPJASS j, LPTRIGGER trigger);
 void jass_doclosure(LPJASS j,LPJASSFUNC func);
 void jass_dumpstack(LPJASS j);
-void jass_dumpenv2txt(LPJASS j);
+void jass_dumpenvfpwd(LPJASS j);
 void jass_dumpenv(LPJASS j);
 void jass_dumpvar(LPJASS j,LPCJASSVAR var);
 #endif
